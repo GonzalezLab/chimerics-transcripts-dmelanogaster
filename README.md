@@ -21,8 +21,6 @@ Coronado-Zamora, M. and González, J. Transposons contribute to the diversificat
 
 ## Contact
 
-Marta Coronado-Zamora - [@geneticament](https://twitter.com/geneticament) - marta@coronado.cat
-
 Project: [https://github.com/GonzalezLab/chimerics-transcripts-dmelanogaster](https://github.com/GonzalezLab/chimerics-transcripts-dmelanogaster)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
