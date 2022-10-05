@@ -59,32 +59,32 @@ for assembly in $assemblies
 			do
 				echo $assembly - $tissue
 				mkdir -p DATA/$assembly/$tissue
-				# cp  ${DIR}/Trinity_${assembly}_${tissue}/salmon_outdir/Trinity_trans.isoform.TMM.EXPR.matrix DATA/$assembly/$tissue
-				# cp  ${DIR}/Trinity_${assembly}_${tissue}/RepeatMasker_Blast_Merged_Reference/Trinity_${assembly}_${tissue}_refTrans.blastn.hist_bin90.list.names DATA/$assembly/$tissue			
-				# grep $assembly ${DIR}/resultsChimAnalysis/TE_chimeric_global_REVISED_v2.tab | grep $tissue > DATA/$assembly/$tissue/TE_chimeric_global_REVISED_${assembly}_${tissue}.tab
-				# > DATA/$assembly/$tissue/Trinity_${assembly}_${tissue}_listTranscriptGene.names
-				# while IFS= read -r info
-				# 	do
-				# 		transcript=$(echo "$info" | cut -f2)
-				# 		gene=$(grep -wF "${transcript}" DATA/assembly/genesTranscript.gtf.tmap | cut -f1)
-				# 		echo -e "$info\t$gene" >> DATA/$assembly/$tissue/Trinity_${assembly}_${tissue}_listTranscriptGene.names
-				# 	done < DATA/$assembly/$tissue/Trinity_${assembly}_${tissue}_refTrans.blastn.hist_bin90.list.names
-				# cut -f8 DATA/$assembly/$tissue/TE_chimeric_global_REVISED_${assembly}_${tissue}.tab | sort -u > DATA/$assembly/$tissue/genesTE.tab
-				# grep -w -f DATA/$assembly/$tissue/genesTE.tab DATA/$assembly/$tissue/Trinity_${assembly}_${tissue}_listTranscriptGene.names > DATA/$assembly/$tissue/transcriptsGeneTE.lst
-				# cut -f 4 DATA/$assembly/$tissue/TE_chimeric_global_REVISED_${assembly}_${tissue}.tab | sort -u >  DATA/$assembly/$tissue/transcriptTE.lst
-				# > DATA/$assembly/$tissue/transcriptsGeneTEStatus.lst
-				# while IFS= read -r info
-				#  	do
-				# 		transcript=$(echo "$info" | cut -f1)
-				#  		if grep -qwF "${transcript}" DATA/$assembly/$tissue/transcriptTE.lst
-				#  			then
-				#  				TE=present
-				#  		else
-				#  			TE=notPresent
-				#  		fi
+				cp  ${DIR}/Trinity_${assembly}_${tissue}/salmon_outdir/Trinity_trans.isoform.TMM.EXPR.matrix DATA/$assembly/$tissue
+				cp  ${DIR}/Trinity_${assembly}_${tissue}/RepeatMasker_Blast_Merged_Reference/Trinity_${assembly}_${tissue}_refTrans.blastn.hist_bin90.list.names DATA/$assembly/$tissue			
+				grep $assembly ${DIR}/resultsChimAnalysis/TE_chimeric_global_REVISED_v2.tab | grep $tissue > DATA/$assembly/$tissue/TE_chimeric_global_REVISED_${assembly}_${tissue}.tab
+				> DATA/$assembly/$tissue/Trinity_${assembly}_${tissue}_listTranscriptGene.names
+				while IFS= read -r info
+					do
+						transcript=$(echo "$info" | cut -f2)
+						gene=$(grep -wF "${transcript}" DATA/assembly/genesTranscript.gtf.tmap | cut -f1)
+						echo -e "$info\t$gene" >> DATA/$assembly/$tissue/Trinity_${assembly}_${tissue}_listTranscriptGene.names
+					done < DATA/$assembly/$tissue/Trinity_${assembly}_${tissue}_refTrans.blastn.hist_bin90.list.names
+				cut -f8 DATA/$assembly/$tissue/TE_chimeric_global_REVISED_${assembly}_${tissue}.tab | sort -u > DATA/$assembly/$tissue/genesTE.tab
+				grep -w -f DATA/$assembly/$tissue/genesTE.tab DATA/$assembly/$tissue/Trinity_${assembly}_${tissue}_listTranscriptGene.names > DATA/$assembly/$tissue/transcriptsGeneTE.lst
+				cut -f 4 DATA/$assembly/$tissue/TE_chimeric_global_REVISED_${assembly}_${tissue}.tab | sort -u >  DATA/$assembly/$tissue/transcriptTE.lst
+				> DATA/$assembly/$tissue/transcriptsGeneTEStatus.lst
+				while IFS= read -r info
+				 	do
+						transcript=$(echo "$info" | cut -f1)
+				 		if grep -qwF "${transcript}" DATA/$assembly/$tissue/transcriptTE.lst
+				 			then
+				 				TE=present
+				 		else
+				 			TE=notPresent
+				 		fi
 
-				#  		echo -e "$info\t$TE" >> DATA/$assembly/$tissue/transcriptsGeneTEStatus.lst
-				#  	done < DATA/$assembly/$tissue/transcriptsGeneTE.lst
+				 		echo -e "$info\t$TE" >> DATA/$assembly/$tissue/transcriptsGeneTEStatus.lst
+				 	done < DATA/$assembly/$tissue/transcriptsGeneTE.lst
 				
 
 				nGenes=$(cut -f3 DATA/$assembly/$tissue/transcriptsGeneTEStatus.lst | sort -u | wc -l)
@@ -168,4 +168,3 @@ for assembly in $assemblies
 			done
 	done
 
-# get genes with TE detected
