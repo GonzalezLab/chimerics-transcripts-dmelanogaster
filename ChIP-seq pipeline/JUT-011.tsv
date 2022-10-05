@@ -1,0 +1,9 @@
+genome_name	JUT-011
+ref_fa	/homes/users/mcoronado/scratch/5GenomesProject/DATA/genomeAssembly/JUT-011/JUT-011.fasta
+bwa_idx_tar	
+bowtie2_idx_tar	/homes/users/mcoronado/scratch/5GenomesProject/DATA/genomeAssembly/JUT-011/bowtie2Index_JUT-011/JUT-011_bowtie2_index.tar.gz
+mito_chr_name	mitochondrion_genome
+custom_aligner_idx_tar	
+chrsz	/homes/users/mcoronado/scratch/5GenomesProject/DATA/genomeAssembly/JUT-011/JUT-011.chrom.sizes
+gensz	135283696
+blacklist	

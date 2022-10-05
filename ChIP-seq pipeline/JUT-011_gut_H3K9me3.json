@@ -1,0 +1,23 @@
+{
+	"chip.title" : "chip-Seq_JUT-011_gut_H3K9me3",
+	"chip.description" : "chip-Seq analysis of H3K9me3 in gut. JUT-011",
+
+	"chip.pipeline_type" : "histone",
+	"chip.aligner" : "bowtie2",
+	"chip.align_only" : false,
+	"chip.true_rep_only" : true,
+
+	"chip.genome_tsv" : "JUT-011.tsv",
+
+	"chip.paired_end" : false,
+	"chip.ctl_paired_end" : false,
+
+	"chip.always_use_pooled_ctl" : true,
+
+	"chip.enable_gc_bias" : true,
+	"chip.enable_jsd" : false,
+	"chip.regex_bfilt_peak_chr_name" : ".+",
+
+	"chip.bams" : [ "/homes/users/mcoronado/scratch/5GenomesProject/ANALYSES/encodeChIPseqPipeline/mapping/JUT-011/gut/H3K9me3/JG29_mapping/JG29.clean_permseq.filter_sorted.bam", "/homes/users/mcoronado/scratch/5GenomesProject/ANALYSES/encodeChIPseqPipeline/mapping/JUT-011/gut/H3K9me3/JG39_mapping/JG39.clean_permseq.filter_sorted.bam", "/homes/users/mcoronado/scratch/5GenomesProject/ANALYSES/encodeChIPseqPipeline/mapping/JUT-011/gut/H3K9me3/JG49_mapping/JG49.clean_permseq.filter_sorted.bam" ],
+	"chip.ctl_bams" : [ "/homes/users/mcoronado/scratch/5GenomesProject/ANALYSES/encodeChIPseqPipeline/mapping/JUT-011/gut/input/JG2i_mapping/JG2i.clean_permseq.filter_sorted.bam", "/homes/users/mcoronado/scratch/5GenomesProject/ANALYSES/encodeChIPseqPipeline/mapping/JUT-011/gut/input/JG3i_mapping/JG3i.clean_permseq.filter_sorted.bam", "/homes/users/mcoronado/scratch/5GenomesProject/ANALYSES/encodeChIPseqPipeline/mapping/JUT-011/gut/input/JG4i_mapping/JG4i.clean_permseq.filter_sorted.bam" ]
+}
