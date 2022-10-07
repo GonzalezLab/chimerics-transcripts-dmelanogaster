@@ -32,7 +32,7 @@ source activate /homes/users/mcoronado/.conda/envs/5GP
 
 DIR=/homes/users/mcoronado/scratch/5GenomesProject
 
-# ## PART 1 - ALIGNMENT
+## PART 1 - ALIGNMENT
 mkdir ${DIR}/ANALYSES/deNovoTranscriptAnnotationReference/annotations/
 
 
