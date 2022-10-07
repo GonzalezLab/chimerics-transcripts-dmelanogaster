@@ -14,7 +14,6 @@ Scripts and data for the paper "Transposons contribute to the diversification of
 - **GO clustering**: script to parse GO clustering David tool output
 - **CPAT**: script to run CPAT
 - **pfamScan**: script to run PFAM
-- **Scripts and data for figures**: contains RData and scripts to create the figures shown in the paper
 - **conda**: conda environments used
 
 ## Citation
