@@ -15,6 +15,7 @@ Scripts and data for the paper "Transposons contribute to the diversification of
 - **CPAT**: script to run CPAT
 - **pfamScan**: script to run PFAM
 - **Scripts and data for figures**: contains RData and scripts to create the figures shown in the paper
+- **conda**: conda environments used
 
 ## Citation
 Coronado-Zamora, M. and González, J. Transposons contribute to the diversification of the head, gut, and ovary transcriptomes across Drosophila natural strains. BioRxiv.
