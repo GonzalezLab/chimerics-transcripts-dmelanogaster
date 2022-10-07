@@ -19,10 +19,10 @@ Column description:
 - **classCode**: transcript type code according to the reference-guided assembly
 - **definition**: transcript type description according to the reference-guided assembly
 - **exonPosDescription**: position in which the TE is detected: first, last or middle exon (corresponds to the 3'/5' UTR, internal exon classification) or (TE inside) when is detected within
--**distanceIntron**: for some transcripts, distances in bp between the first or the last exon with the next one (not used in downstream analyses)
--**FIMOenrichment**: motif and p-value if a motif was found with FIMO
--**SS**: a code specifing the meaning of FIMOenrichment column
--**lengthTE**: length of the TE insertion in bp
--**score**: score of the TE according to RepeatMasker (not used for downstream analyses)
--**AS**: logical column according if the AS sites where detected or not according to `FIMOenrichment` and `SS` columns
--**group**: 1: overlap and AS insertions group, 2: internal insertions group
+- **distanceIntron**: for some transcripts, distances in bp between the first or the last exon with the next one (not used in downstream analyses)
+- **FIMOenrichment**: motif and p-value if a motif was found with FIMO
+- **SS**: a code specifing the meaning of FIMOenrichment column
+- **lengthTE**: length of the TE insertion in bp
+- **score**: score of the TE according to RepeatMasker (not used for downstream analyses)
+- **AS**: logical column according if the AS sites where detected or not according to `FIMOenrichment` and `SS` columns
+- **group**: 1: overlap and AS insertions group, 2: internal insertions group
