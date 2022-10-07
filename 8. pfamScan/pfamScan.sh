@@ -39,9 +39,9 @@ tissues="head gut ovary"
 > globalResult.tsv
 
 for assembly in $assemblies
+do
+	for tissue in $tissues
 	do
-		for tissue in $tissues
-			do
 				#rm -r $assembly/$tissue/tmp/gff
 				#rm -r $assembly/$tissue/tmp/fasta
 				#rm $assembly/$tissue/*output
@@ -50,16 +50,16 @@ for assembly in $assemblies
 				mkdir -p $assembly/$tissue/pfamOutput
 				insertions=$(grep "Middle exon (TE inside)" ../TE_chimeric_global_REVISED_v2.tab | grep ${assembly} | grep ${tissue})
 				while IFS= read -r insertion
-					do
-						transcript=$(echo "$insertion" | cut -f4)
-						echo $tissue $assembly $transcript
-						stringtieID=$(echo "$insertion" | cut -f6)
-						geneID=$(echo "$insertion" | cut -f8)
-						startTE=$(echo "$insertion" | cut -f10 | cut -f1 -d'-')
-						endTE=$(echo "$insertion" | cut -f10 | cut -f2 -d'-')
-						TEconsensusID=$(echo "$insertion" | cut -f13 | cut -f1 -d'(')
-						strand=$(echo "$insertion" | cut -f13 | cut -f2 -d'(' |  head -c 1)
-						TEfam=$(echo "$insertion" | cut -f14)
+				do
+					transcript=$(echo "$insertion" | cut -f4)
+					echo $tissue $assembly $transcript
+					stringtieID=$(echo "$insertion" | cut -f6)
+					geneID=$(echo "$insertion" | cut -f8)
+					startTE=$(echo "$insertion" | cut -f10 | cut -f1 -d'-')
+					endTE=$(echo "$insertion" | cut -f10 | cut -f2 -d'-')
+					TEconsensusID=$(echo "$insertion" | cut -f13 | cut -f1 -d'(')
+					strand=$(echo "$insertion" | cut -f13 | cut -f2 -d'(' |  head -c 1)
+					TEfam=$(echo "$insertion" | cut -f14)
 						#echo -e "$transcript\t$stringtieID\t$geneID\t$startTE\t$endTE\t$TEconsensusID\t$strand\t$TEfam"
 						echo -e "$transcript\tfeature\tTE\t$startTE\t$endTE\t.\t$strand\t.\tname=$transcript" > $assembly/$tissue/tmp/gff/${transcript}_${TEfam}_${startTE}-${endTE}.gff
 						bedtools getfasta -fi ../../Trinity_${assembly}_${tissue}/RepeatMasker_Blast_Merged_Reference/RepeatMaskerImproved90/minimap2assembly/RepeatMaskerTranscriptsCorrectOrientation/transcriptsCorrectOrientation.fa.masked -bed $assembly/$tissue/tmp/gff/${transcript}_${TEfam}_${startTE}-${endTE}.gff -s  > $assembly/$tissue/tmp/fasta/${transcript}_${TEfam}_${startTE}-${endTE}.fasta 
@@ -68,8 +68,8 @@ for assembly in $assemblies
 						seqtk subseq $assembly/$tissue/tmp/fasta/${transcript}_${TEfam}_${startTE}-${endTE}.ORF.fasta $assembly/$tissue/tmp/fasta/longestIsoform_${transcript}_${TEfam}_${startTE}-${endTE}.lst > $assembly/$tissue/tmp/fasta/${transcript}_${TEfam}_${startTE}-${endTE}.longORF.fasta
 						sed -i "1 s/./>${transcript}_${tissue}_${assembly}_${stringtieID}_${geneID}_${TEfam}_g2_/" $assembly/$tissue/tmp/fasta/${transcript}_${TEfam}_${startTE}-${endTE}.longORF.fasta
 						pfam_scan.pl -fasta $assembly/$tissue/tmp/fasta/${transcript}_${TEfam}_${startTE}-${endTE}.longORF.fasta  -dir pfamFiles -outfile $assembly/$tissue/pfamOutput/${transcript}_${TEfam}_${startTE}-${endTE}.g2.pfam.output
-				done <<< "$insertions"
+					done <<< "$insertions"
 
 					
+				done
 			done
-	done

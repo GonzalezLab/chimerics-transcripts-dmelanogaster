@@ -64,29 +64,29 @@ fimo --oc fimo_whole_roo --verbosity 1 --thresh 1.0E-4 ${DIR}/trinity-repeatMask
 
 while read transcriptInfo
 do
-tissue=$(echo "$transcriptInfo" | cut -f1 )
-assembly=$(echo "$transcriptInfo" | cut -f2 )
-transcript=$(echo "$transcriptInfo" | cut -f3 )
-TEconsensusID=$(echo "$transcriptInfo" | cut -f6 )
-TEfamily=$(echo "$transcriptInfo" | cut -f7 )
-exonPosDescription=$(echo "$transcriptInfo" | cut -f8 )
-length=$(echo "$transcriptInfo" | cut -f9 )
-group=$(echo "$transcriptInfo" | cut -f10 )
+	tissue=$(echo "$transcriptInfo" | cut -f1 )
+	assembly=$(echo "$transcriptInfo" | cut -f2 )
+	transcript=$(echo "$transcriptInfo" | cut -f3 )
+	TEconsensusID=$(echo "$transcriptInfo" | cut -f6 )
+	TEfamily=$(echo "$transcriptInfo" | cut -f7 )
+	exonPosDescription=$(echo "$transcriptInfo" | cut -f8 )
+	length=$(echo "$transcriptInfo" | cut -f9 )
+	group=$(echo "$transcriptInfo" | cut -f10 )
 
-awk -v transcript="$transcript" '$1 == transcript ' ${DIR}/trinity-repeatMasker/Trinity_${assembly}_${tissue}/RepeatMasker_Blast_Merged_Reference/RepeatMaskerImproved90/Trinity.hits_bin90.fasta.out.gff | grep con48_roo | bedtools merge > ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/tmp/${transcript}_${tissue}_${assembly}_con48_roo.gff
+	awk -v transcript="$transcript" '$1 == transcript ' ${DIR}/trinity-repeatMasker/Trinity_${assembly}_${tissue}/RepeatMasker_Blast_Merged_Reference/RepeatMaskerImproved90/Trinity.hits_bin90.fasta.out.gff | grep con48_roo | bedtools merge > ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/tmp/${transcript}_${tissue}_${assembly}_con48_roo.gff
 
-bedtools getfasta \
--fi ${DIR}/trinity-repeatMasker/Trinity_${assembly}_${tissue}/RepeatMasker_Blast_Merged_Reference/RepeatMaskerImproved90/Trinity.hits_bin90.fasta.masked \
--bed ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/tmp/${transcript}_${tissue}_${assembly}_con48_roo.gff > \
-${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/tmp/${transcript}_${tissue}_${assembly}_con48_roo.fasta
+	bedtools getfasta \
+	-fi ${DIR}/trinity-repeatMasker/Trinity_${assembly}_${tissue}/RepeatMasker_Blast_Merged_Reference/RepeatMaskerImproved90/Trinity.hits_bin90.fasta.masked \
+	-bed ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/tmp/${transcript}_${tissue}_${assembly}_con48_roo.gff > \
+	${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/tmp/${transcript}_${tissue}_${assembly}_con48_roo.fasta
 
-fimo --oc fimo --verbosity 1 --thresh 1.0E-4 ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/20220928102932_JASPAR2022_combined_matrices_21733_meme.txt ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/tmp/${transcript}_${tissue}_${assembly}_con48_roo.fasta
+	fimo --oc fimo --verbosity 1 --thresh 1.0E-4 ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/20220928102932_JASPAR2022_combined_matrices_21733_meme.txt ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/tmp/${transcript}_${tissue}_${assembly}_con48_roo.fasta
 
 
-while read motifD
-do
-motif=$(echo "$motifD" | cut -f1,7,9,10)
-echo -e "$tissue\t$assembly\t$transcript\t$motif" >> results.fimo.tab
+	while read motifD
+	do
+		motif=$(echo "$motifD" | cut -f1,7,9,10)
+		echo -e "$tissue\t$assembly\t$transcript\t$motif" >> results.fimo.tab
 #echo -e "$tissue\t$assembly\t$transcript\t$length\t$group\t$motif" >> results.fimo.tab
 done < <(tail -n+2 fimo/fimo.tsv | grep -v '#' | grep -v "^$") 
 
