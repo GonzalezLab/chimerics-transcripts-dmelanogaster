@@ -4,12 +4,12 @@ Column description:
 
 - **Tissue**: head, gut, ovary - body part in which the chimeric transcript was detected
 - **Assembly**: AKA-017, JUT-011, MUN-016, SLA-001, TOM-007 - strain in which the chimeric transcript was detected
+- **FlyBaseGeneRef**: id of the gene in FBgn format
+- **stringtieID**: id of the transcript according to the reference-guided assembly. Most genes have a FBtr ID, the ones starting with MSTRG are transcripts not found in the reference annotation
 - **Category**: exonOverlapTE, partialOverlap, TEoverlapExon: if the TE was detected within an exon, overlapping with the exon, or the exon was detected within a TE (not used for downstream analyses)
 - **Transcript**: ID according to Trinity
 - **Length transcript**: length of the assembled transcript in bp
-- **stringtieID**: id of the transcript according to the reference-guided assembly. Most genes have a FBtr ID, the ones starting with MSTRG are transcripts not found in the reference annotation
 - **FlyBaseRef**: id of the transcript according to FlyBase. 
-- **FlyBaseGeneRef**: id of the gene in FBgn format
 - **nExon**: number of exons detected in the transcript after performing the alignment to the genome with minimap2
 - **coordTE**: coordinates where the TE was detected
 - **lengthExon**: coordinates of the exon that has a matching TE
@@ -26,3 +26,6 @@ Column description:
 - **score**: score of the TE according to RepeatMasker (not used for downstream analyses)
 - **AS**: logical column according if the AS sites where detected or not according to `FIMOenrichment` and `SS` columns
 - **group**: 1: overlap and AS insertions group, 2: internal insertions group
+- **CP**: coding potential according to CPAT
+- **status**: type of transcript according to FlyBase annotations (RNA,ncRNA,pseudogene,pre_miRNA,tRNA,snoRNA)
+- **avgExpr**: average level of expression (in TMM, averaging the expression level of three replicates)
