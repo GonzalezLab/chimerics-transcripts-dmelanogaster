@@ -1,36 +1,18 @@
 #!/bin/bash
 
-# set the partition where the job will run
-
-#SBATCH --partition=normal
-
-# set the number of nodes
-
-#SBATCH --cpus-per-task=12
-
-#SBATCH --mem=78G
-
-# mail alert at start, end and abortion of execution
-
-#SBATCH --mail-type=ALL
-
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
 #SBATCH --job-name=roo
+#SBATCH --output=logs/roo.out
+#SBATCH --error=logs/roo.err
 
-#SBATCH --output=roo.output
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate chimerics
+module load foss/2021b
+module load R/4.1.2
 
-#SBATCH --error=roo.error
-
-# send mail to this address
-
-#SBATCH --mail-user=marta.coronado@ibe.upf-csic.es
-
-module load Miniconda3/4.7.10
-
-source activate /homes/users/mcoronado/.conda/envs/trinity
-
-# Run
-
-DIR=/homes/users/mcoronado/scratch/5GenomesProject/ANALYSES
+DIR="/lustre/home/ibe/mcoronado/scratch/5GenomesProject/ANALYSIS/chimerics"
+DIRDATA="/lustre/home/ibe/mcoronado/scratch/5GenomesProject/DATA"
 
 #tissues="head=Heads gut=Gut ovary=Ovary"
 tissues="head gut ovary"
@@ -40,72 +22,104 @@ assembly="AKA-017 JUT-011 MUN-016 SLA-001 TOM-007"
 
 #gunzip dmel-all-gene-r6.31.fasta.gz
 
-cat roo.fasta dmel-all-gene-r6.31.fasta > dmel-genes-roo.fasta
+#cat roo.fasta dmel-all-gene-r6.31.fasta > dmel-genes-roo.fasta
 
-makeblastdb -in  dmel-genes-roo.fasta -dbtype nucl
-makeblastdb -in  dmel-chr.fasta -dbtype nucl
+#makeblastdb -in  dmel-genes-roo.fasta -dbtype nucl
+#makeblastdb -in  dmel-chr.fasta -dbtype nucl
 
-> resultsBLAST.txt
+cd ${DIR}/roo_analysis
 
-
-while read transcriptInfo
+> resultsBLAST.strict.txt
+while read insertionInfo
 do
-    tissue=$(echo "$transcriptInfo" | cut -f1 )
-    assembly=$(echo "$transcriptInfo" | cut -f2 )
-    transcript=$(echo "$transcriptInfo" | cut -f3 )
-    TEconsensusID=$(echo "$transcriptInfo" | cut -f6 )
-    TEfamily=$(echo "$transcriptInfo" | cut -f7 )
-    exonPosDescription=$(echo "$transcriptInfo" | cut -f8 )
-    length=$(echo "$transcriptInfo" | cut -f9 )
-    group=$(echo "$transcriptInfo" | cut -f10 )
+tissue=$(echo "$insertionInfo" | cut -f 1)
+strain=$(echo "$insertionInfo" | cut -f 2)
+transcript_trinity=$(echo "$insertionInfo" | cut -f 4)
+transcript_stringtie=$(echo "$insertionInfo" | cut -f 3)
+transcript=$(echo "$insertionInfo" | cut -f 5)
+gene=$(echo "$insertionInfo" | cut -f 6)
 
-    awk -v transcript="$transcript" '$1 == transcript ' ${DIR}/trinity-repeatMasker/Trinity_${assembly}_${tissue}/RepeatMasker_Blast_Merged_Reference/RepeatMaskerImproved90/Trinity.hits_bin90.fasta.out.gff | grep con48_roo | bedtools merge > ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/tmp/${transcript}_${tissue}_${assembly}_con48_roo.gff
+startRoo=$(echo "$insertionInfo" | cut -f 7)
+startRoo=$(( startRoo - 1  ))
+endRoo=$(echo "$insertionInfo" | cut -f 8)
+cons=$(echo "$insertionInfo" | cut -f 9)
+echo -e "$tissue\t$strain\t$transcript\t$transcript_trinity"
+i=$(grep -Pl "^(?=.*$startRoo)(?=.*$endRoo)"  ${DIR}/minimap2/${strain}_${tissue}/tmp/$transcript.$transcript_trinity.roo.*.fa | grep -o "roo\.[0-9]*" | sed "s/roo\.//" | head -n1 )
+file=$(ls ${DIR}/minimap2/${strain}_${tissue}/tmp/$transcript.$transcript_trinity.roo.$i.fa)
 
-    bedtools getfasta \
-    -fi ${DIR}/trinity-repeatMasker/Trinity_${assembly}_${tissue}/RepeatMasker_Blast_Merged_Reference/RepeatMaskerImproved90/Trinity.hits_bin90.fasta.masked \
-    -bed ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/tmp/${transcript}_${tissue}_${assembly}_con48_roo.gff > \
-    ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/tmp/${transcript}_${tissue}_${assembly}_con48_roo.fasta
+cp $file tmp/$transcript.$transcript_trinity.roo.$i.fa
+sed -i "1 s/^.*$/>${transcript_trinity}:${tissue}:${strain}:${startRoo}:${endRoo}/" tmp/$transcript.$transcript_trinity.roo.$i.fa
 
-    sed -i "s/^>.*$/>${transcript}_${tissue}_${assembly}/g" ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/tmp/${transcript}_${tissue}_${assembly}_con48_roo.fasta
+blastn -query tmp/$transcript.$transcript_trinity.roo.$i.fa -db dmel-chr.fasta -dust no -soft_masking false -outfmt 6 -word_size 7 -evalue 0.05 -gapopen 5 -gapextend 2  -qcov_hsp_perc 85 -perc_identity 75 | head -n 20 >> resultsBLAST.strict.txt
 
-    blastn -query ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/tmp/${transcript}_${tissue}_${assembly}_con48_roo.fasta -db dmel-chr.fasta -dust no -soft_masking false -outfmt 6 -word_size 7 -evalue 0.05 -gapopen 5 -gapextend 2 >> resultsBLAST.txt
+echo -e "$tissue\t$assembly\t$transcript"
 
-    echo -e "$tissue\t$assembly\t$transcript"
+done <  <(awk -F'\t' ' $28 == "repeat" ' ${DIR}/clean_set_minimap2/chimerics_v2.tab | cut -f 1,2,3,4,6,7,13,15 |tr ':' '\t' |sort -u)
 
-done <  ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/transcripts_TEfamily_group.tab
+# I recovered some other to repeat (recover_roo_other), so I add them:
+comm -13 <(cat ../roo_analysis/resultsBLAST.strict.txt | cut -f1 -d':' | sort -u)  <(awk -F'\t' ' $30 == "repeat" ' ${DIR}/clean_set_minimap2/chimerics_v2.tab | cut -f 1,2,3,4,6,7,13,15 |tr ':' '\t' |sort -u  | cut -f 4 | sort -u) > list_missing
 
-#awk -v OFS='\t' '$3 == "gene"' ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/dmel-chr-r6.31.gff | cut -f1-9 > ${DIR}/trinity-repeatMasker/resultsChimAnalysis/roo_analysis/dmel-chr-genes-r6.31.gff 
+while read insertionInfo
+do
+tissue=$(echo "$insertionInfo" | cut -f 1)
+strain=$(echo "$insertionInfo" | cut -f 2)
+transcript_trinity=$(echo "$insertionInfo" | cut -f 4)
+transcript_stringtie=$(echo "$insertionInfo" | cut -f 7)
+transcript=$(echo "$insertionInfo" | cut -f 3)
+gene=$(echo "$insertionInfo" | cut -f 8)
+
+startRoo=$(echo "$insertionInfo" | cut -f 5)
+startRoo=$(( startRoo - 1  ))
+endRoo=$(echo "$insertionInfo" | cut -f 6)
+cons=$(echo "$insertionInfo" | cut -f 9)
+echo -e "$tissue\t$strain\t$transcript\t$transcript_trinity"
+i=$(grep -Pl "^(?=.*$startRoo)(?=.*$endRoo)"  ${DIR}/minimap2/${strain}_${tissue}/tmp/$transcript.$transcript_trinity.roo.*.fa | grep -o "roo\.[0-9]*" | sed "s/roo\.//" | head -n1 )
+file=$(ls ${DIR}/minimap2/${strain}_${tissue}/tmp/$transcript.$transcript_trinity.roo.$i.fa)
+
+cp $file tmp/$transcript.$transcript_trinity.roo.$i.fa
+sed -i "1 s/^.*$/>${transcript_trinity}:${tissue}:${strain}:${startRoo}:${endRoo}/" tmp/$transcript.$transcript_trinity.roo.$i.fa
+
+blastn -query tmp/$transcript.$transcript_trinity.roo.$i.fa -db dmel-chr.fasta -dust no -soft_masking false -outfmt 6 -word_size 7 -evalue 0.05 -gapopen 5 -gapextend 2  -qcov_hsp_perc 85 -perc_identity 75 | head -n 20 >> resultsBLAST.strict.txt
+
+echo -e "$tissue\t$assembly\t$transcript"
+
+done <  <(awk -F'\t' ' $30 == "repeat" ' ${DIR}/clean_set_minimap2/chimerics_v2.tab | grep -f list_missing | cut -f 1,2,3,4,6,7,9,16 |tr ':' '\t' |sort -u)
+
+
+
+
+#awk -v OFS='\t' '$3 == "gene"' ../../../trinity-repeatMasker/resultsChimAnalysis/roo_analysis/dmel-chr-r6.31.gff | cut -f1-9 > ../../../trinity-repeatMasker/resultsChimAnalysis/roo_analysis/dmel-chr-genes-r6.31.gff 
 #cat Natural\ TE-* > Natural_TEs.gff3
-#awk -v OFS='\t' '{ print $2,"blast","region",$9,$10,".",".",".",$1 }'o resultsBLAST.txt | cut -f1 -d':' > resultsBLAST.gff
+#awk -v OFS='\t' '{ print $2,"blast","region",$9,$10,".",".",".",$1 }'o resultsBLAST.strict.txt | cut -f1 -d':' > resultsBLAST.gff
 
 awk -v OFS='\t' '{
-    if ( $9 > $10 )
-    print $2,"blast","region",$10,$9,".",".",".",$1";evalue="$11";bit-score="$12
-    else
-    print $2,"blast","region",$9,$10,".",".",".",$1";evalue="$11";bit-score="$12
-}' resultsBLAST.txt | cut -f1 -d':' > resultsBLAST.gff
+if ( $13 > $14 )
+print $6,"blast","region",$14,$13,".",".",".",$1";"$2";"$3";"$4+1":"$5";evalue="$15";bit-score="$16
+else
+ print $6, "blast","region",$13,$14,".",".",".",$1";"$2";"$3";"$4+1":"$5";evalue="$15";bit-score="$16
+}' <(cat resultsBLAST.strict.txt | tr ':' '\t' )  > resultsBLAST.strict.gff
 
 
-##slow option
-> resultsBLAST_top20.txt 
-while read transcript
-do
-    awk -v transcript="$transcript" ' $1 == transcript ' resultsBLAST.txt | head -n 20 >> resultsBLAST_top20.txt 
-done < <(cut -f1 resultsBLAST.txt | sort -u )
+##muy lento
+# > resultsBLAST_top20.txt 
+# while read transcript
+# do
+# awk -v transcript="$transcript" ' $1 == transcript ' resultsBLAST.strict.txt | head -n 20 >> resultsBLAST_top20.txt 
+# done < <(cut -f1 resultsBLAST.strict.txt | sort -u )
 
 
-awk -v OFS='\t' '{
-    if ( $9 > $10 )
-    print $2,"blast","region",$10,$9,".",".",".",$1";evalue="$11";bit-score="$12
-    else
-    print $2,"blast","region",$9,$10,".",".",".",$1";evalue="$11";bit-score="$12
-}' resultsBLAST_top20.txt  | cut -f1 -d':' > resultsBLAST_top20.gff
-## discarded
+# awk -v OFS='\t' '{
+# if ( $9 > $10 )
+# print $2,"blast","region",$10,$9,".",".",".",$1";evalue="$11";bit-score="$12
+# else
+#  print $2,"blast","region",$9,$10,".",".",".",$1";evalue="$11";bit-score="$12
+# }' resultsBLAST_top20.txt  | cut -f1 -d':' > resultsBLAST_top20.gff
+##
+ 
 
-
-#cat resultsBLAST.gff | sort -u > resultsBLAST.unique.gff
-# keep results ordered
-cat resultsBLAST.gff | awk '!x[$0]++' > resultsBLAST.unique2.gff
+#cat resultsBLAST.gff | sort -u > resultsBLAST.strict.unique2.gff
+#opcion ordenada
+cat resultsBLAST.strict.gff | awk '!x[$0]++' > resultsBLAST.strict.unique2.gff
 
 
 #awk -v OFS='\t' '{
@@ -113,68 +127,77 @@ cat resultsBLAST.gff | awk '!x[$0]++' > resultsBLAST.unique2.gff
 #print $2,$10-1,$9 
 #else
 # print $2,$9-1,$10
-#}' resultsBLAST.txt  > resultsBLAST.bed
+#}' resultsBLAST.strict.txt  > resultsBLAST.bed
 
 #cat dmel-chr-genes-r6.31.gff Natural_TEs.gff3 > dmel-chr-genes-TE-r6.31.tmp.gff 
 #gff3sort.pl --precise dmel-chr-genes-TE-r6.31.tmp.gff > dmel-chr-genes-TE-r6.31.gff
 
-#bedtools intersect  -a resultsBLAST.unique.gff -b dmel-chr-genes-TE-r6.31.gff  -wa -wb -v | cut -f 1,4,5 | sort -u | wc -l
-bedtools intersect  -a resultsBLAST.unique.gff -b dmel-chr-genes-TE-r6.31.gff -wb > resultsBLAST.unique.bedtoolsGenomeTes.tab
-bedtools intersect  -a resultsBLAST.unique.gff -b dmel-chr-genes-TE-r6.31.gff -wb -v > resultsBLAST.unique.bedtoolsInterGenic.tab
+#bedtools intersect  -a resultsBLAST.strict.unique2.gff -b dmel-chr-genes-TE-r6.31.gff  -wa -wb -v | cut -f 1,4,5 | sort -u | wc -l
+#bedtools intersect  -a resultsBLAST.strict.unique2.gff -b dmel-chr-genes-TE-r6.31.gff -wb > resultsBLAST.strict.unique.bedtoolsGenomeTes.tab
+#bedtools intersect  -a resultsBLAST.strict.unique2.gff -b dmel-chr-genes-TE-r6.31.gff -wb -v > resultsBLAST.strict.unique.bedtoolsInterGenic.tab
 
-cat resultsBLAST.unique.bedtoolsGenomeTes.tab resultsBLAST.unique.bedtoolsInterGenic.tab > resultsBLAST.unique.bedtoolsAll.tab
+#cat resultsBLAST.strict.unique.bedtoolsGenomeTes.tab resultsBLAST.strict.unique.bedtoolsInterGenic.tab > resultsBLAST.strict.unique.bedtoolsAll.tab
 
-> resultsBLAST.unique2_top20.gff 
-while read transcript
-do
-    grep "$transcript" resultsBLAST.unique2.gff | head -n 20 >> resultsBLAST.unique2_top20.gff 
-done < <(cut -f9 resultsBLAST.unique2.gff | cut -f1 -d ';' | sort -u)
+#grep "roo" resultsBLAST.strict.unique.bedtoolsAll.tab | grep "transposable" | cut -f 9| cut -f1 -d';' | sort -u | sed "s/_head_/\thead\t/g" | sed "s/_gut_/\tgut\t/g" | sed "s/_ovary_/\tovary\t/g" > resultsBLAST.strict.unique.bedtoolsAll.roo.lst
 
-bedtools intersect  -a resultsBLAST.unique2_top20.gff -b dmel-chr-genes-TE-r6.31.gff -wb > resultsBLAST.unique2_top20.bedtoolsGenomeTes.tab
-bedtools intersect  -a resultsBLAST.unique2_top20.gff -b dmel-chr-genes-TE-r6.31.gff -wb -v > resultsBLAST.unique2_top20.bedtoolsInterGenic.tab
+# > resultsBLAST.strict.unique2_top20.gff 
+# while read transcript
+# do
+# grep "$transcript" resultsBLAST.strict.unique2.gff | head -n 20 >> resultsBLAST.strict.unique2_top20.gff 
+# done < <(cut -f9 resultsBLAST.strict.unique2.gff | cut -f1 -d ';' | sort -u)
 
-cat resultsBLAST.unique2_top20.bedtoolsGenomeTes.tab resultsBLAST.unique2_top20.bedtoolsInterGenic.tab > resultsBLAST.unique2_top20.bedtoolsAll.tab
+bedtools intersect  -a resultsBLAST.strict.unique2.gff -b dmel-chr-genes-TE-r6.31.gff -wb > resultsBLAST.strict.unique2_top20.bedtoolsGenomeTes.tab
+bedtools intersect  -a resultsBLAST.strict.unique2.gff -b dmel-chr-genes-TE-r6.31.gff -wb -v > resultsBLAST.strict.unique2_top20.bedtoolsInterGenic.tab
 
+cat resultsBLAST.strict.unique2_top20.bedtoolsGenomeTes.tab resultsBLAST.strict.unique2_top20.bedtoolsInterGenic.tab > resultsBLAST.strict.unique2_top20.bedtoolsAll.tab
+
+>  resultsBLAST.strict.unique2_top20.cross.gff
 while read transcriptInfo
 do
-    start=$(echo "$transcriptInf"o | cut -f4)
-    end=$(echo "$transcriptInfo" | cut -f5)
-    transcript=$(echo "$transcriptInfo"  | cut -f9 | cut -f1 -d ';' )
-    result=$(grep $transcript resultsBLAST.unique2_top20.bedtoolsAll.tab | grep $start | grep $end |  cut -f 18 | sed -r '/^\s*$/d' | cut -f1 -d';' | tr '\n' ';' )
-    if [ -z "$result" ];then
-        echo -e "$transcriptInfo\tintergenic"
-    else
-        echo -e "$transcriptInfo\t$result"
-    fi
-done <  resultsBLAST.unique2_top20.gff | cut -f 1,9,10 >  resultsBLAST.unique2_top20.cross.gff
+start=$(echo "$transcriptInfo" | cut -f4)
+end=$(echo "$transcriptInfo" | cut -f5)
+transcript=$(echo "$transcriptInfo"  | cut -f9 | cut -f1 -d ';' )
+result=$(grep $transcript resultsBLAST.strict.unique2_top20.bedtoolsAll.tab | grep $start | grep $end |  cut -f 18 | sed -r '/^\s*$/d' | cut -f1 -d';' | tr '\n' ';' )
+if [ -z "$result" ];then
+echo -e "$transcriptInfo\tintergenic" >>  resultsBLAST.strict.unique2_top20.cross.gff
+else
+echo -e "$transcriptInfo\t$result"  >>  resultsBLAST.strict.unique2_top20.cross.gff
+fi
+done <  resultsBLAST.strict.unique2.gff 
 
-> resultsBLAST.unique2_top20.cross.result.gff
+> resultsBLAST.strict.unique2_top20.cross.result2.gff
 while read transcriptInfo
 do
-    firstGene=$(grep -m1 "$transcriptInfo" resultsBLAST.unique2_top20.cross.gff | cut -f 3| sed 's/ID=//g' | tr -d ';')
-    assembly=$(echo "$transcriptInfo" | rev | cut -f1 -d'_' | rev)
-    tissue=$(echo "$transcriptInfo" | rev | cut -f2 -d'_' | rev)
-    transcript=$(echo "$transcriptInfo" | rev | cut -f3- -d'_' | rev)
-    nroo=$(grep "$transcriptInfo" resultsBLAST.unique2_top20.cross.gff | grep -n -m 1 "roo" | cut -f1 -d':')
-    ngene=$(grep "$transcriptInfo" resultsBLAST.unique2_top20.cross.gff | grep -n -m 1 "FBgn" | cut -f1 -d':')
-    nintergenic=$(grep "$transcriptInfo" resultsBLAST.unique2_top20.cross.gff | grep -n -m 1 "intergenic" | cut -f1 -d':')
-    gene=$(grep -w $transcript ../TE_chimeric_global_REVISED_v2.tab | grep -w $tissue | grep -w $assembly | cut -f8 | sort -u)
-    if [ $firstGene == $gene ];then
-        geneCheck="YES"
-    else
-        geneCheck="NO"
-    fi
+transcript=$(echo "$transcriptInfo" | cut -f1 -d ';' )
+tissue=$(echo "$transcriptInfo"  | cut -f2 -d ';' )
+strain=$(echo "$transcriptInfo" | cut -f3 -d ';')
+pos=$(echo "$transcriptInfo" | cut -f4 -d ';')
+nMatches=$(grep "$transcript" resultsBLAST.strict.unique2_top20.cross.gff | grep $tissue | grep $strain | grep $pos | wc -l)
+firstGene=$(grep "$transcript" resultsBLAST.strict.unique2_top20.cross.gff | grep $tissue | grep $strain | grep $pos | head -n1 | cut -f 10| sed 's/ID=//g' | tr -d ';' | sort -u)
+nroo=$(grep "$transcript" resultsBLAST.strict.unique2_top20.cross.gff | grep $tissue | grep $strain | grep $pos | grep -n -m 1 "roo" | cut -f1 -d':')
+ngene=$(grep "$transcript" resultsBLAST.strict.unique2_top20.cross.gff | grep $tissue | grep $strain | grep $pos  | grep -n -m 1 "FBgn" | cut -f1 -d':')
+nintergenic=$(grep "$transcript" resultsBLAST.strict.unique2_top20.cross.gff | grep $tissue | grep $strain | grep $pos  | grep -n -m 1 "intergenic" | cut -f1 -d':')
+gene=$(grep -w $transcript ${DIR}/clean_set_minimap2/chimerics_v2.tab | grep -w $tissue | grep -w $strain | cut -f9 | sort -u)
+if [[ $firstGene == $gene ]];then
+geneCheck="YES"
+else
+geneCheck="NO"
+fi
 
-    if [[ -z "$nroo" ]];then
-        nroo="NA"
-    fi
+if [[ -z "$nroo" ]];then
+nroo="NA"
+fi
 
-    if [[ -z "$nintergenic" ]];then
-        nintergenic="NA"
-    fi
+if [[ -z "$nintergenic" ]];then
+nintergenic="NA"
+fi
 
-    echo -e "$transcriptInfo"
-    echo -e "$transcript\t$tissue\t$assembly\troo\t$nroo\tgene\t$ngene\tintergenic\t$nintergenic\t$geneCheck">> resultsBLAST.unique2_top20.cross.result.gff
+echo -e "$transcriptInfo"
+echo -e "$transcript\t$tissue\t$strain\tpos\t$pos\tmatches\t$nMatches\troo\t$nroo\tgene\t$ngene\tintergenic\t$nintergenic\t$geneCheck" >> resultsBLAST.strict.unique2_top20.cross.result2.gff
 
-done <   <(cut -f2 resultsBLAST.unique2_top20.cross.gff | cut -f1 -d';' | sort -u )  
+done <   <(cut -f9 resultsBLAST.strict.unique2_top20.cross.gff | cut -f1-4 -d';' | sort -u )  
+
+
+
+
 

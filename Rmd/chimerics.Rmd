@@ -1,0 +1,3189 @@
+---
+title: "Chimeric gene-TE transcripts in *Drosophila* body parts"
+author: "Marta Coronado-Zamora"
+date: "13 March 2023"
+output:
+  html_document:
+    theme: yeti
+    css: https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.11.2/css/all.css
+    self_contained: yes
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.width = 8, fig.height = 6, fig.align = "center", warning = FALSE, message = FALSE)
+library(ggplot2)
+library(data.table)
+library(dplyr)
+library(DT)
+library(eulerr)
+library(cowplot)
+library(stringr)
+library(tidyr)
+library(ggrepel)
+library(UpSetR)
+setwd("/run/user/1000/gvfs/sftp:host=drago.csic.es,user=mcoronado/lustre/home/ibe/mcoronado/scratch/5GenomesProject/ANALYSIS/chimerics/ANALYSES")
+source("ggplot_theme.R")
+```
+
+::: {style="background-color: #86CBBB; 1px; height:3px "}
+:::
+
+## 1. Descriptive analysis of gene-TE chimeric transcripts
+
+**Total set of chimeric transcripts identified**:
+
+```{r data}
+chimerics <- fread("../clean_set_minimap2/chimerics.tab")
+#datatable(chimerics)
+
+# give an ID number to each chimeric
+id_chimerics <- fread("../id_chimerics/id_transcripts.tab", , colClasses = c(V4 = "character"))
+colnames(id_chimerics) <- c("tissue", "strain", "transcript_stringtie", "id")
+
+chimerics <- merge(chimerics, id_chimerics, by = c("tissue", "strain", "transcript_stringtie"))
+#write.table(chimerics, "../clean_set_minimap2/chimerics.id.tab", sep = "\t", quote = F, row.names = F, col.names = T)
+datatable(chimerics)
+``` 
+
+We identified `r length(unique(chimerics$transcript_stringtie))`
+chimeric gene-TE transcripts belonging to
+`r length(unique(chimerics$gene))` genes.
+
+```{r total-chimerics, eval = F}
+# Table S2A
+system("bash 1DescriptiveAnalysis/Table_S2A.sh")
+```
+
+The `Table_S2A.sh` script generated the information displayed on Table
+S2A.
+
+```{r table-S2A}
+table_S2A <- fread("1DescriptiveAnalysis/Table_S2A.tab")
+colnames(table_S2A) <- c("Position", "Group", "Strain", "Tissue", "Number of transcripts (genes)")
+datatable(table_S2A)
+```
+
+```{r information}
+all_transcripts <- fread("../all_transcripts_expression/all_transcripts_expr.tab")
+colnames(all_transcripts) <- c("tissue", "strain", "transcript_trinity", "transcript_stringtie", "gene", "transcript", "expression", "type", "roo_type", "group")
+all_transcripts <- merge(all_transcripts, unique(chimerics[,c("tissue","strain","transcript_stringtie","transcript_trinity","id")]), by=c("tissue","strain","transcript_stringtie","transcript_trinity"), all = T)
+all_transcripts$comb <- ""
+all_transcripts[all_transcripts$type=="chimeric",]$comb <- paste0(all_transcripts[all_transcripts$type=="chimeric",]$transcript_stringtie,"-",all_transcripts[all_transcripts$type=="chimeric",]$id)
+all_transcripts[all_transcripts$type=="non-chimeric",]$comb <- paste0(all_transcripts[all_transcripts$type=="non-chimeric",]$transcript_stringtie,"-",all_transcripts[all_transcripts$type=="non-chimeric",]$type)
+
+```
+
+Thus, approximately
+`r round(length(unique(all_transcripts[all_transcripts$type=="chimeric",]$comb))/length(unique(all_transcripts$comb))*100,0)`%
+(`r length(unique(all_transcripts[all_transcripts$type=="chimeric",]$comb))`/`r length(unique(all_transcripts$comb))`)
+of D. melanogaster transcripts contain exonic sequences of TE origin.
+
+```{r chimerics-by-strain}
+strains <- c("AKA-017", "MUN-016", "JUT-011", "SLA-001", "TOM-007")
+
+# create a data frame to store the results
+results <- data.frame(strain = character(),
+                      type = character(),
+                      class = character(),
+                      value = numeric(),
+                      percentage = numeric(),
+                      yPos = numeric(),
+                      stringsAsFactors = FALSE)
+
+# loop over the strains and compute the values
+for (s in strains) {
+  # compute the percentage of chimeric transcripts for this strain
+  percentage <- all_transcripts %>%
+    filter(type == "chimeric" & strain == s) %>%
+    summarize(percentage = round(length(unique(comb))/length(unique(all_transcripts[all_transcripts$strain==s,]$comb))*100, 1)) %>%
+    pull(percentage)
+  
+  # compute the number of unique chimeric transcripts for this strain
+  unique_count_chimerics <- all_transcripts %>%
+    filter(type == "chimeric" & strain == s) %>%
+    summarize(unique_count = n_distinct(comb)) %>%
+    pull(unique_count)
+  
+  unique_count_all <- all_transcripts %>%
+    filter(strain == s) %>%
+    summarize(unique_count = n_distinct(comb)) %>%
+    pull(unique_count)
+  
+  # add the results to the data frame
+  results <- results %>%
+    add_row(strain = s, type = "differenceTotalTranscripts", class = "Total transcriptome", value = unique_count_all-unique_count_chimerics, percentage = percentage, yPos = unique_count_all-unique_count_chimerics) %>%
+    add_row(strain = s, type = "totalChimerics", class = "Total transcriptome", value = unique_count_chimerics, percentage = NA, yPos = unique_count_all-unique_count_chimerics)
+}
+```
+
+In individual strains, this percentage ranged between
+`r min(results[results$type=="differenceTotalTranscripts",]$percentage)`%
+to
+`r max(results[results$type=="differenceTotalTranscripts",]$percentage)`%
+(`r min(results[results$type=="totalChimerics",]$value)`-`r max(results[results$type=="totalChimerics",]$value)`
+chimeric transcripts per genome) indicating that most of the chimeric
+gene-TE transcripts are strain-specific, as expected given that the
+majority of TEs are present at low population frequencies.
+
+```{r add-all-transcripts}
+unique_count_all <- length(unique(all_transcripts$comb))
+unique_count_chimerics <- length(unique(all_transcripts[all_transcripts$type=="chimeric",]$comb))
+
+percentage <- round(length(unique(all_transcripts[all_transcripts$type=="chimeric",]$comb))/length(unique(all_transcripts$comb))*100,1)
+results <- results %>%
+    add_row(strain = "All", type = "differenceTotalTranscripts", class = "Total transcriptome", value = unique_count_all-unique_count_chimerics, percentage = percentage, yPos = unique_count_all-unique_count_chimerics) %>%
+    add_row(strain = "All", type = "totalChimerics", class = "Total transcriptome", value = unique_count_chimerics, percentage = NA, yPos = unique_count_all-unique_count_chimerics)
+```
+
+```{r chimerics-strain-specific}
+# group by transcript and count the number of unique strains
+strains_summary <- chimerics %>%
+  group_by(id) %>%
+  summarise(num_strains = n_distinct(strain))
+
+# respect all:
+# 1312:
+all_transcripts %>% 
+  group_by(comb) %>%
+  mutate(num_strain = n_distinct(strain))%>%
+  filter(num_strain == 1, type=="chimeric") %>% ungroup %>% summarize(n_distinct(comb))
+
+# respect chimerics:
+# 674:
+chimerics %>% 
+  group_by(id) %>%
+  mutate(num_strain = n_distinct(strain))%>%
+  filter(num_strain == 1) %>% ungroup %>% summarize(n_distinct(id))
+
+```
+
+Many of the chimeric transcripts are strain-specific:
+`r strains_summary %>% filter(num_strains == 1) %>% nrow()`/`r strains_summary %>% nrow()`
+(`r round(strains_summary %>% filter(num_strains == 1) %>% nrow()/strains_summary %>% nrow()*100,0)`)%.
+
+```{r chimerics-tissue-specific}
+# loop over the strains and compute the values
+for (s in strains) {
+  all_transcripts_tissue_sp <- all_transcripts %>% 
+    filter(strain == s) %>%
+    group_by(comb) %>%
+    mutate(num_tissue = n_distinct(tissue))%>%
+    filter(num_tissue == 1) %>% ungroup() 
+  # compute the percentage of chimeric transcripts for this strain
+  percentage <- all_transcripts_tissue_sp %>%
+    filter(type == "chimeric") %>% 
+    summarize(percentage = round(length(unique(comb))/length(unique(all_transcripts_tissue_sp$comb))*100, 1)) %>%
+    pull(percentage)
+  
+  # compute the number of unique chimeric transcripts for this strain
+  unique_count_chimerics <- all_transcripts_tissue_sp %>%
+    filter(type == "chimeric") %>%
+    summarize(unique_count = n_distinct(comb)) %>%
+    pull(unique_count)
+  
+  unique_count_all <- all_transcripts_tissue_sp %>%
+    summarize(unique_count = n_distinct(comb)) %>%
+    pull(unique_count)
+  
+  # add the results to the data frame
+  results <- results %>%
+    add_row(strain = s, type = "differenceTotalTranscripts", class = "Body-part specific transcriptome", value = unique_count_all-unique_count_chimerics, percentage = percentage, yPos = unique_count_all-unique_count_chimerics) %>%
+    add_row(strain = s, type = "totalChimerics", class = "Body-part specific transcriptome", value = unique_count_chimerics, percentage = NA, yPos = unique_count_all-unique_count_chimerics)
+}
+
+all_transcripts_tissue_sp <- all_transcripts %>% 
+  group_by(comb) %>%
+  mutate(num_tissue = n_distinct(tissue))%>%
+  filter(num_tissue == 1)
+  
+all_transcripts_tissue_sp_chimerics <- all_transcripts %>% 
+  group_by(comb) %>%
+  mutate(num_tissue = n_distinct(tissue))%>%
+  filter(num_tissue == 1, type=="chimeric")
+  
+unique_count_all <- length(unique(all_transcripts_tissue_sp$comb))
+unique_count_chimerics <-length(unique(all_transcripts_tissue_sp_chimerics$comb))
+percentage <- round(length(unique(all_transcripts_tissue_sp_chimerics$comb))/length(unique(all_transcripts_tissue_sp$comb))*100,1)
+results <- results %>%
+    add_row(strain = "All", type = "differenceTotalTranscripts", class = "Body-part specific transcriptome", value = unique_count_all-unique_count_chimerics, percentage = percentage, yPos = unique_count_all-unique_count_chimerics) %>%
+    add_row(strain = "All", type = "totalChimerics", class = "Body-part specific transcriptome", value = unique_count_chimerics, percentage = NA, yPos = unique_count_all-unique_count_chimerics)
+
+# print the results
+datatable(results)
+```
+
+TEs contribute
+`r results[results$strain=="All" & results$class=="Body-part specific transcriptome" & results$type=="differenceTotalTranscripts",]$percentage`%
+(`r results[results$strain=="All" & results$class=="Body-part specific transcriptome" & results$type=="totalChimerics",]$value`/`r results[results$strain=="All" & results$class=="Body-part specific transcriptome" & results$type=="differenceTotalTranscripts",]$value+results[results$strain=="All" & results$class=="Body-part specific transcriptome" & results$type=="totalChimerics",]$value`)
+of the total amount of body part specific transcripts.
+
+```{r figure-1C}
+results$strain <- factor(results$strain, levels=rev(c("All", "AKA-017", "JUT-011", "MUN-016", "SLA-001", "TOM-007")))
+results$class <- factor(results$class, levels=c("Total transcriptome", "Body-part specific transcriptome"))
+results$type <- factor(results$type, levels=c("totalChimerics", "differenceTotalTranscripts"))
+
+a <- ggplot(results[results$class=="Total transcriptome",], aes(x=strain, y=value, fill=type)) + geom_col() + facet_grid(.~class, scale="free") + geom_text(aes(label = percentage, y = yPos),  hjust = 1.1, size = 6) + coord_flip() + scale_fill_manual(values=c("#D51410","#f2dba9"), guide="none") +  labs(y="", x="") + theme_Publication() + theme(axis.text = element_text( size = 24)) + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=24), plot.title = element_text(size = 24), strip.text.x = element_text(size = 26), strip.background =element_rect(fill="white", color="white"))
+
+b <- ggplot(results[results$class=="Body-part specific transcriptome",], aes(x=strain, y=value, fill=type)) + geom_col() + facet_grid(.~class, scale="free") + geom_text(aes(label = percentage, y = yPos),  hjust = 1.1, size = 6) + coord_flip() + scale_fill_manual(values=c("#D51410","#f2dba9"), guide="none") +  labs(y="Number of transcripts", x="") + theme_Publication() + theme(axis.text = element_text( size = 24)) + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=24), plot.title = element_text(size = 24), strip.text.x = element_text(size = 26), strip.background =element_rect(fill="white", color="white"))
+
+cowplot::plot_grid(a,b,ncol = 1)
+
+ggsave(filename="FIGURES/Figure1C.pdf",plot=cowplot::plot_grid(a,b,ncol = 1), height = 10, width = 8)
+ggsave(filename="FIGURES/Figure1C.svg",plot=cowplot::plot_grid(a,b,ncol = 1), height = 12, width = 10)
+```
+
+## Two groups of chimeric transcripts
+
+We identified two groups of chimeric gene-TE transcripts: overlap and AS
+insertions group:
+`r chimerics %>% filter(group==1) %>% summarize(n_distinct(id)) %>% pull()`
+transcripts
+(`r chimerics %>% filter(group==1) %>% summarize(n_distinct(gene)) %>% pull()`
+genes) and internal insertions group:
+`r chimerics %>% filter(group==2) %>% summarize(n_distinct(id)) %>% pull()`
+transcripts
+(`r chimerics %>% filter(group==2) %>% summarize(n_distinct(gene)) %>% pull()`
+genes).
+
+## Number of expected and observed chimeric transcripts and genes with AS motifs
+
+```{r table-S1B}
+tissues <- c("all", "head", "gut", "ovary")
+
+data <- list()
+
+
+for (t in tissues) {
+
+if ( t == "all" ){
+expected_t <- length(unique(chimerics[chimerics$group==1 & chimerics$result!="",]$id))
+
+found_t <- length(unique(chimerics[chimerics$group==1 & chimerics$result!="No enrichment" & chimerics$result!="No enrichment;No enrichment",]$id))
+
+expected_g <- length(unique(chimerics[chimerics$group==1 & chimerics$result!="",]$gene))
+
+found_g <- length(unique(chimerics[chimerics$group==1 & chimerics$result!="No enrichment" & chimerics$result!="No enrichment;No enrichment",]$gene))
+
+} else {
+expected_t <- length(unique(chimerics[chimerics$group==1 & chimerics$result!="" & chimerics$tissue == t,]$id))
+
+found_t <- length(unique(chimerics[chimerics$group==1 & chimerics$result!="No enrichment" & chimerics$result!="No enrichment;No enrichment"  & chimerics$tissue == t,]$id))
+
+expected_g <- length(unique(chimerics[chimerics$group==1 & chimerics$result!="" & chimerics$tissue == t,]$gene))
+
+found_g <- length(unique(chimerics[chimerics$group==1 & chimerics$result!="No enrichment" & chimerics$result!="No enrichment;No enrichment"  & chimerics$tissue == t,]$gene))
+}
+
+    data[[t]] <- data.frame(transcripts = c(expected_t, found_t), genes = c(expected_g, found_g))
+
+        
+}
+
+df <- do.call(rbind, data)
+rownames(df) <- c("All expected", "All found", "head expected", "head found", "gut expected", "gut found", "ovary expected", "ovary found")
+write.table(df, file="1DescriptiveAnalysis/Table_S2B.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+datatable(df)
+```
+
+Most of the TEs in the overlap and AS insertions grup were adding a
+canonical AS motif (`r round(df[2,1]/df[1,1]*100,1)`%,
+`r df[2,1]`/`r df[1,1]`).
+
+## Differences in insertion length
+
+```{r TE-length-comparison}
+
+group1_total <- chimerics %>% filter(group==1) %>% summarize(n_distinct(id)) %>% pull()
+
+group2_total <- chimerics %>% filter(group==2) %>% summarize(n_distinct(id)) %>% pull()
+
+group1_shortInsertions <- chimerics %>% filter(group==1) %>% filter(TE_length_total < 120) %>% summarize(n_distinct(id)) %>% pull()
+
+group2_shortInsertions <- chimerics %>% filter(group==2) %>% filter(TE_length_total < 120) %>% summarize(n_distinct(id)) %>% pull()
+
+prop.test(x=c(group1_shortInsertions,group2_shortInsertions), n=c(group1_total, group2_total))
+chisq.test(matrix(c(group1_shortInsertions,group2_shortInsertions, group1_total, group2_total),nrow=2))
+```
+
+We found that TEs in this group are shorter than those of the overlap
+and AS insertion group, as expected if the former are older insertions
+(`r round(group1_shortInsertions/group1_total*100,1)`% vs
+`r round(group2_shortInsertions/group2_total*100,1)`%).
+
+```{r figure-S1}
+
+TE_chim_global_transcripts_TE<- unique(chimerics[,c("transcript_stringtie", "gene","tissue", "strain","TE_length_total", "TE_family", "group")])
+
+toPlot2 <- TE_chim_global_transcripts_TE  %>% group_by(transcript_stringtie) %>%  reframe(Mean = mean(TE_length_total, na.rm=TRUE), group1=unique(group))
+
+toPlot2$cut<-cut(toPlot2$Mean, seq(0,max(toPlot2$Mean)+200,by=120),dig.lab = 5 )
+toPlot2$cut <- as.character(toPlot2$cut)
+toPlot2[toPlot2$cut=="(0,120]",]$cut <- "(32,120]"
+toPlot2$cut <- factor(toPlot2$cut, levels=c("(32,120]",levels(cut(toPlot2$Mean, seq(0,max(toPlot2$Mean)+200,by=120),dig.lab = 5 ))))
+ggplot(toPlot2, aes(x=cut,fill=as.factor(group1)))+ theme_bw(base_size = 16) + 
+  geom_histogram(position = "dodge", stat="count")  + labs(fill="Insertion type", y="Number of chimeric\ngene-TE transcripts", x="Mean TE insertion") + scale_fill_manual(labels=c("Overlap and AS insertions", "Internal insertions"), values=c("orange1","cadetblue4"))  + theme(legend.position = "bottom")  + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank()) 
+
+ggsave("FIGURES/FigureS1.pdf",width = 9.5,height = 7.5)
+ggsave("FIGURES/FigureS1.svg",width = 9.5,height = 7.5)
+```
+
+Additionally, while the majority of gene-TE transcripts in the overlap
+and AS insertions group were strain-specific, we found more transcripts
+shared between strains than strain-specific in the internal insertions
+group.
+
+```{r table-s2c}
+
+types <- c("All", "Overlap & AS insertions", "Internal insertions")
+lengths <- c("All", "≥120")
+strains <- c("AKA-017", "MUN-016", "JUT-011", "SLA-001", "TOM-007")
+
+# Create an empty data frame to store the results
+s2c_a <- data.frame(matrix(nrow = length(types)*length(lengths), ncol = length(strains)))
+colnames(s2c_a) <- strains
+row_idx <- 1
+for ( length in lengths ) {
+  
+for (type in types) {
+
+      # Create a new row in the results data frame
+    row_name <- paste0(type, "-", length)
+    s2c_a[row_idx, "RowNames"] <- row_name
+    
+  for (strainID in strains) {
+      
+    if (type == "All") {
+      if (length == "All") {
+       
+        n <- chimerics %>% filter(strain==strainID) %>% summarize(n_distinct(id)) %>% pull()
+      }
+      else {
+        n <- chimerics %>% filter(strain==strainID, TE_length_total >= 120) %>% summarize(n_distinct(id)) %>% pull()
+      }
+    } else {
+      #print(type)
+      #print(str(type))
+      if (length == "All") {
+        if (type == "Overlap & AS insertions" ) { 
+        n <- chimerics %>% filter(strain==strainID, group==1) %>% summarize(n_distinct(id)) %>% pull()
+        } else if (type == "Internal insertions"){
+          n <- chimerics %>% filter(strain==strainID, group==2) %>% summarize(n_distinct(id)) %>% pull()
+        }
+      }
+      else {
+                 if (type == "Overlap & AS insertions" ) { 
+        n <- chimerics %>% filter(strain==strainID, group==1, TE_length_total >= 120) %>% summarize(n_distinct(id)) %>% pull()
+        } else if (type == "Internal insertions"){
+          n <- chimerics %>% filter(strain==strainID, group==2, TE_length_total >= 120) %>% summarize(n_distinct(id)) %>% pull()
+        }
+      }
+    }
+    s2c_a[row_idx, strainID] <- n
+  }
+      row_idx <- row_idx + 1
+
+}
+}
+
+# Set the row names of the results data frame
+row.names(s2c_a) <- s2c_a$RowNames
+s2c_a$RowNames <- NULL
+
+# View the results data frame
+s2c_a
+
+
+# strain specific 
+
+# create a data frame with all combinations of types and lengths
+params <- expand.grid(types, lengths)
+
+# create an empty data frame to store the results
+s2c_b <- data.frame(type = character(), length = character(),
+                          num_strain_specific = numeric(),
+                          percent_strain_specific = numeric(),
+                          num_strain_shared = numeric(),
+                          percent_strain_shared = numeric(),
+                          num_strain_pol = numeric(),
+                          percent_strain_pol = numeric(),
+                         num_total_transcripts = numeric())
+
+
+# loop over the parameter combinations
+for (i in seq_len(nrow(params))) {
+  type <- params$Var1[i]
+  length <- params$Var2[i]
+  
+  # filter the data based on the type and length
+  if (type == "All") {
+    data <- chimerics
+  } else if (type == "Overlap & AS insertions") {
+    data <- chimerics %>% filter(group == 1)
+  } else if (type == "Internal insertions") {
+    data <- chimerics %>% filter(group == 2)
+  }
+  if (length == "≥120") {
+    data <- data %>% filter(TE_length_total >= 120)
+  }
+  
+    num_total_transcripts <- data %>% 
+    summarise(num_transcripts = n_distinct(id)) %>% 
+    pull(num_transcripts)
+    
+  # calculate the number and percentage of strain-specific transcripts
+  num_strain_specific <- data %>% 
+    group_by(id) %>% 
+    summarise(num_strains = n_distinct(strain)) %>% 
+    filter(num_strains == 1) %>% 
+    nrow()
+  
+  percent_strain_specific <- num_strain_specific / num_total_transcripts * 100
+  
+    # calculate the number and percentage of strain-shared transcripts
+  num_strain_shared <- data %>% 
+    group_by(id) %>% 
+    summarise(num_strains = n_distinct(strain)) %>% 
+    filter(num_strains == 5) %>% 
+    nrow()
+  
+  percent_strain_shared <- num_strain_shared / num_total_transcripts * 100
+  
+      # calculate the number and percentage of strain-shared transcripts
+  num_strain_pol <- data %>% 
+    group_by(id) %>% 
+    summarise(num_strains = n_distinct(strain)) %>% 
+    filter(num_strains %in% 2:4) %>% 
+    nrow()
+  
+  percent_strain_pol <- num_strain_pol / num_total_transcripts * 100
+  
+  # append the results to the dataframe
+  s2c_b <- rbind(s2c_b, data.frame(type = type, length = length,
+                          num_strain_specific = num_strain_specific,
+                          percent_strain_specific = percent_strain_specific,
+                          num_strain_shared = num_strain_shared,
+                          percent_strain_shared = percent_strain_shared,
+                          num_strain_pol = num_strain_pol,
+                          percent_strain_pol = percent_strain_pol, num_total_transcripts = num_total_transcripts)
+                       )
+
+  
+}
+s2c <- cbind(s2c_a, s2c_b)
+s2c$type <- NULL
+s2c$length <- NULL
+datatable(s2c)
+write.table(s2c, file="1DescriptiveAnalysis/Table_S2C.tab", quote = F, col.names = T, row.names = T, sep = "\t")
+```
+
+Test of proportions:
+
+```{r test-proportions}
+
+prop.test(x=c(s2c["Overlap & AS insertions-All","num_strain_specific"],
+              s2c["Internal insertions-All","num_strain_specific"]), 
+          n=c(s2c["Overlap & AS insertions-All","num_total_transcripts"],
+              s2c["Internal insertions-All","num_total_transcripts"]))
+
+chisq.test(matrix(c(s2c["Overlap & AS insertions-All","num_strain_specific"],
+              s2c["Internal insertions-All","num_strain_specific"],s2c["Overlap & AS insertions-All","num_total_transcripts"],
+              s2c["Internal insertions-All","num_total_transcripts"]),nrow=2))
+
+
+prop.test(x=c(s2c["Overlap & AS insertions-All","num_strain_shared"]+s2c["Overlap & AS insertions-All","num_strain_pol"],
+              s2c["Internal insertions-All", "num_strain_shared"] + s2c["Internal insertions-All", "num_strain_pol"]), 
+          n=c(s2c["Overlap & AS insertions-All","num_total_transcripts"],
+              s2c["Internal insertions-All","num_total_transcripts"]))
+
+chisq.test(matrix(c(s2c["Overlap & AS insertions-All","num_strain_shared"]+s2c["Overlap & AS insertions-All","num_strain_pol"],
+              s2c["Internal insertions-All", "num_strain_shared"] + s2c["Internal insertions-All", "num_strain_pol"],s2c["Overlap & AS insertions-All","num_total_transcripts"],
+              s2c["Internal insertions-All","num_total_transcripts"]),nrow=2))
+
+
+prop.test(x=c(s2c["Overlap & AS insertions-≥120","num_strain_specific"],
+              s2c["Internal insertions-≥120","num_strain_specific"]), 
+          n=c(s2c["Overlap & AS insertions-≥120","num_total_transcripts"],
+              s2c["Internal insertions-≥120","num_total_transcripts"]))
+chisq.test(matrix(c(s2c["Overlap & AS insertions-≥120","num_strain_specific"],
+              s2c["Internal insertions-≥120","num_strain_specific"],s2c["Overlap & AS insertions-≥120","num_total_transcripts"],
+              s2c["Internal insertions-≥120","num_total_transcripts"]),nrow=2))
+
+
+prop.test(x=c(s2c["Overlap & AS insertions-≥120","num_strain_shared"]+s2c["Overlap & AS insertions-≥120","num_strain_pol"],
+              s2c["Internal insertions-≥120", "num_strain_shared"] + s2c["Internal insertions-≥120", "num_strain_pol"]), 
+          n=c(s2c["Overlap & AS insertions-≥120","num_total_transcripts"],
+              s2c["Internal insertions-≥120","num_total_transcripts"]))
+
+prop.test(x=c(s2c["Overlap & AS insertions-≥120","num_strain_specific"],
+              s2c["Internal insertions-≥120","num_strain_specific"]), 
+          n=c(s2c["Overlap & AS insertions-≥120","num_total_transcripts"],
+              s2c["Internal insertions-≥120","num_total_transcripts"]))
+chisq.test(matrix(c(s2c["Overlap & AS insertions-≥120","num_strain_shared"]+s2c["Overlap & AS insertions-≥120","num_strain_pol"],
+              s2c["Internal insertions-≥120", "num_strain_shared"] + s2c["Internal insertions-≥120", "num_strain_pol"],s2c["Overlap & AS insertions-≥120","num_total_transcripts"],
+              s2c["Internal insertions-≥120","num_total_transcripts"]),nrow=2))
+
+```
+
+```{r figure-S2A}
+
+types <- c("All", "Overlap & AS\ninsertions", "Internal\ninsertions")
+
+# create empty dataframe
+output_df <- data.frame(
+  type = character(),
+  class = character(),
+  variable = character(),
+  value = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (type in types) {
+
+  if (type == "All") {
+    data <- chimerics
+  } else if (type == "Overlap & AS\ninsertions") {
+    data <- chimerics %>% filter(group == 1)
+  } else if (type == "Internal\ninsertions") {
+    data <- chimerics %>% filter(group == 2)
+  }
+
+  num_strain_specific <- data %>% 
+    group_by(id) %>% 
+    summarise(num_strains = n_distinct(strain)) %>% 
+    filter(num_strains == 1) %>% 
+    nrow()
+  
+  num_strain_shared <- data %>% 
+    group_by(id) %>% 
+    summarise(num_strains = n_distinct(strain)) %>% 
+    filter(num_strains == 5) %>% 
+    nrow()
+  
+  num_strain_pol <- data %>% 
+    group_by(id) %>% 
+    summarise(num_strains = n_distinct(strain)) %>% 
+    filter(num_strains %in% 2:4) %>% 
+    nrow()
+ 
+    num_bp_specific <- data %>% 
+    group_by(id) %>% 
+    summarise(num_tissue = n_distinct(tissue)) %>% 
+    filter(num_tissue == 1) %>% 
+    nrow()
+  
+  num_bp_shared <- data %>% 
+    group_by(id) %>% 
+    summarise(num_tissue = n_distinct(tissue)) %>% 
+    filter(num_tissue == 3) %>% 
+    nrow()
+  
+  num_bp_pol <- data %>% 
+    group_by(id) %>% 
+    summarise(num_tissue = n_distinct(tissue)) %>% 
+    filter(num_tissue == 2) %>% 
+    nrow()
+
+     # add values to the output dataframe using rbind
+  output_df <- rbind(output_df,
+                     data.frame(
+                       type = type,
+                       class = "Chimeric gene-TE transcripts across strains",
+                       variable = "Strain-specific",
+                       value = num_strain_specific
+                     ),
+                     data.frame(
+                       type = type,
+                       class = "Chimeric gene-TE transcripts across strains",
+                       variable = "Shared across 5 strains",
+                       value = num_strain_shared
+                     ),
+                     data.frame(
+                       type = type,
+                       class = "Chimeric gene-TE transcripts across strains",
+                       variable = "Shared across 2-4 strains",
+                       value = num_strain_pol
+                     ),
+                     data.frame(
+                       type = type,
+                       class = "Chimeric gene-TE transcripts across body parts",
+                       variable = "Body part-specific",
+                       value = num_bp_specific
+                     ),
+                     data.frame(
+                       type = type,
+                       class = "Chimeric gene-TE transcripts across body parts",
+                       variable = "Shared across 3 body parts",
+                       value = num_bp_shared
+                     ),
+                     data.frame(
+                       type = type,
+                       class = "Chimeric gene-TE transcripts across body parts",
+                       variable = "Shared across 2 body parts",
+                       value = num_bp_pol
+                     )
+  )
+}
+
+output_df <- output_df %>%
+  group_by(type, class) %>%
+  mutate(percentage = value / sum(value))
+
+output_df$type <- factor(output_df$type, levels = c("All", "Overlap & AS\ninsertions", "Internal\ninsertions"))
+output_df$variable <- factor(output_df$variable, levels = c("Shared across 5 strains", "Shared across 2-4 strains", "Strain-specific", "Shared across 3 body parts", "Shared across 2 body parts", "Body part-specific"))
+
+p_a<-ggplot(output_df[output_df$class=="Chimeric gene-TE transcripts across strains",] , aes(x=type, y = percentage, fill = variable)) + geom_col(alpha=0.8) + theme_Publication() + scale_fill_Publication() + labs(y="Percentage of chimeric\ngene-TE transcript", x="", fill = "Type")  + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16),plot.title = element_text(size = 16)) +
+  geom_text(aes(label=value), position=position_stack(),vjust = 1.2, size = 4) + scale_y_continuous(labels=scales::percent,expand = c(0,0)) +
+  guides(fill = guide_legend(reverse=TRUE)) + ggtitle("Chimeric gene-TE transcripts across strains") +guides(fill=guide_legend(ncol =1))
+
+p_b<-ggplot(output_df[output_df$class=="Chimeric gene-TE transcripts across body parts",] , aes(x=type, y = percentage, fill = variable))  + geom_col(alpha=0.8) + theme_Publication() + scale_fill_manual(values=c("#ef3b2c","#662506","#a6cee3")) + labs(y="Percentage of chimeric\ngene-TE transcript", x="", fill = "Type")  + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16)) +
+  geom_text(aes(label=value), position=position_stack(),vjust = 1.2, size = 4) + scale_y_continuous(labels=scales::percent,expand = c(0,0)) +
+  guides(fill = guide_legend(reverse=TRUE))  + ggtitle("Chimeric gene-TE transcripts across body parts") +guides(fill=guide_legend(ncol =1))
+
+ggarrange(p_a,p_b, nrow = 1, labels = c("A", "B"))
+
+ggsave(filename = "FIGURES/FigureS2.pdf", ggarrange(p_a,p_b, nrow = 1, labels = c("A", "B")), width = 13, height = 6)
+ggsave(filename = "FIGURES/FigureS2.svg", ggarrange(p_a,p_b, nrow = 1, labels = c("A", "B")), width = 12.5, height = 5.5)
+
+```
+
+We also performed the analysis with the subset of chimeric gene-TE transcripts that contains a fragment of a TE insertion that is ≥120bp (`r chimerics %>% filter(group==1, TE_length_total>=120) %>% summarize(n_distinct(id)) %>% pull()`/`r chimerics %>% filter(group==1) %>% summarize(n_distinct(id)) %>% pull()` and `r chimerics %>% filter(group==2, TE_length_total>=120) %>% summarize(n_distinct(id)) %>% pull()`/`r chimerics %>% filter(group==2) %>% summarize(n_distinct(id)) %>% pull()` for the overlap and AS insertions and the internal insertions groups, respectively.
+
+## 2. Gene-TE chimeric transcripts are more abundant in the head and in ovary
+
+```{r}
+per_bp_specific <-chimerics %>% 
+    group_by(id) %>%
+    mutate(num_tissue = n_distinct(tissue))%>%
+    filter(num_tissue == 1) %>% ungroup %>% summarize(n=n_distinct(id)) %>% summarize(round(n/length(unique(chimerics$id))*100,1)) %>% pull()
+
+n_bp_specific <-chimerics %>% 
+    group_by(id) %>%
+    mutate(num_tissue = n_distinct(tissue))%>%
+    filter(num_tissue == 1) %>% ungroup %>% summarize(n=n_distinct(id)) %>%  pull()
+
+per_bp_shared <-chimerics %>% 
+    group_by(id) %>%
+    mutate(num_tissue = n_distinct(tissue))%>%
+    filter(num_tissue == 3) %>% ungroup %>% summarize(n=n_distinct(id)) %>% summarize(round(n/length(unique(chimerics$id))*100,1)) %>% pull()
+
+n_bp_shared <-chimerics %>% 
+    group_by(id) %>%
+    mutate(num_tissue = n_distinct(tissue))%>%
+    filter(num_tissue == 3) %>% ungroup %>% summarize(n=n_distinct(id)) %>%  pull()
+```
+
+We found that the majority of the assembled chimeric gene-TE transcripts
+across the five strains analyzed were body part specific
+(`r per_bp_specific`:
+`r n_bp_specific`/`r length(unique(chimerics$id))`), with only `r per_bp_shared`:
+`r n_bp_shared`/`r length(unique(chimerics$id))`
+
+
+```{r table-S3A}
+types <- c("All", "Overlap & AS insertions", "Internal insertions")
+lengths <- c("All", "≥120")
+body_parts <- c("head", "gut", "ovary")
+
+# Create an empty data frame to store the results
+s3a_a <- data.frame(matrix(nrow = length(types)*length(lengths), ncol = length(body_parts)))
+colnames(s3a_a) <- body_parts
+row_idx <- 1
+for ( length in lengths ) {
+  
+for (type in types) {
+
+      # Create a new row in the results data frame
+    row_name <- paste0(type, "-", length)
+    s3a_a[row_idx, "RowNames"] <- row_name
+    
+  for (body_part in body_parts) {
+      
+    if (type == "All") {
+      if (length == "All") {
+       
+        n <- chimerics %>% filter(tissue==body_part) %>% summarize(n_distinct(id)) %>% pull()
+      }
+      else {
+        n <- chimerics %>% filter(tissue==body_part, TE_length_total >= 120) %>% summarize(n_distinct(id)) %>% pull()
+      }
+    } else {
+      #print(type)
+      #print(str(type))
+      if (length == "All") {
+        if (type == "Overlap & AS insertions" ) { 
+        n <- chimerics %>% filter(tissue==body_part, group==1) %>% summarize(n_distinct(id)) %>% pull()
+        } else if (type == "Internal insertions"){
+          n <- chimerics %>% filter(tissue==body_part, group==2) %>% summarize(n_distinct(id)) %>% pull()
+        }
+      }
+      else {
+                 if (type == "Overlap & AS insertions" ) { 
+        n <- chimerics %>% filter(tissue==body_part, group==1, TE_length_total >= 120) %>% summarize(n_distinct(id)) %>% pull()
+        } else if (type == "Internal insertions"){
+          n <- chimerics %>% filter(tissue==body_part, group==2, TE_length_total >= 120) %>% summarize(n_distinct(id)) %>% pull()
+        }
+      }
+    }
+    s3a_a[row_idx, body_part] <- n
+  }
+      row_idx <- row_idx + 1
+
+}
+}
+
+# Set the row names of the results data frame
+row.names(s3a_a) <- s3a_a$RowNames
+s3a_a$RowNames <- NULL
+
+# View the results data frame
+s3a_a
+
+
+# strain specific 
+
+# create a data frame with all combinations of types and lengths
+params <- expand.grid(types, lengths)
+
+# create an empty data frame to store the results
+s3a_b <- data.frame(type = character(), length = character(),
+                          num_bp_specific = numeric(),
+                          percent_bp_specific = numeric(),
+                          num_bp_shared = numeric(),
+                          percent_bp_shared = numeric(),
+                          num_bp_pol = numeric(),
+                          percent_bp_pol = numeric(),
+                         num_total_transcripts = numeric())
+
+
+# loop over the parameter combinations
+for (i in seq_len(nrow(params))) {
+  type <- params$Var1[i]
+  length <- params$Var2[i]
+  
+  # filter the data based on the type and length
+  if (type == "All") {
+    data <- chimerics
+  } else if (type == "Overlap & AS insertions") {
+    data <- chimerics %>% filter(group == 1)
+  } else if (type == "Internal insertions") {
+    data <- chimerics %>% filter(group == 2)
+  }
+  if (length == "≥120") {
+    data <- data %>% filter(TE_length_total >= 120)
+  }
+  
+    num_total_transcripts <- data %>% 
+    summarise(num_transcripts = n_distinct(id)) %>% 
+    pull(num_transcripts)
+    
+  # calculate the number and percentage of strain-specific transcripts
+  num_bp_specific <- data %>% 
+    group_by(id) %>% 
+    summarise(num_tissues = n_distinct(tissue)) %>% 
+    filter(num_tissues == 1) %>% 
+    nrow()
+  
+  percent_bp_specific <- num_bp_specific / num_total_transcripts * 100
+  
+    # calculate the number and percentage of strain-shared transcripts
+  num_bp_shared <- data %>% 
+    group_by(id) %>% 
+    summarise(num_tissues = n_distinct(tissue)) %>% 
+    filter(num_tissues == 3) %>% 
+    nrow()
+  
+  percent_bp_shared <- num_bp_shared / num_total_transcripts * 100
+  
+      # calculate the number and percentage of strain-shared transcripts
+  num_bp_pol <- data %>% 
+    group_by(id) %>% 
+    summarise(num_tissues = n_distinct(tissue)) %>% 
+    filter(num_tissues == 2) %>% 
+    nrow()
+  
+  percent_bp_pol <- num_bp_pol / num_total_transcripts * 100
+  
+  # append the results to the dataframe
+  s3a_b <- rbind(s3a_b, data.frame(type = type, length = length,
+                          num_bp_specific = num_bp_specific,
+                          percent_bp_specific = percent_bp_specific,
+                          num_bp_shared = num_bp_shared,
+                          percent_bp_shared = percent_bp_shared,
+                          num_bp_pol = num_bp_pol,
+                          percent_bp_pol = percent_bp_pol, num_total_transcripts = num_total_transcripts)
+                       )
+
+  
+}
+s3a <- cbind(s3a_a, s3a_b)
+s3a$type <- NULL
+s3a$length <- NULL
+datatable(s3a)
+write.table(s3a, file="1DescriptiveAnalysis/Table_S3A.tab", quote = F, col.names = T, row.names = T, sep = "\t")
+```
+
+head was the body part expressing most chimeric transcripts (`r s3a["All-All","head"]`), followed by the gut (`r s3a["All-All","gut"]`) and ovary (`r s3a["All-All","ovary"]`)
+
+```{r comparison-treiber-waddell}
+
+supp5_treiber_waddel <- fread("1DescriptiveAnalysis/treiber_waddell_data/suppTable5Treiber.tab")
+length(intersect(unique(supp5_treiber_waddel$gene_id), chimerics$gene))
+```
+
+```{r table-S3B}
+
+tissues <- c("head", "gut", "ovary")
+
+results <- data.frame(tissue = character(), n_total = numeric(), bp_specific = numeric(), per_bp_specific = numeric(), n_total_chimerics = numeric(), per_chimeric = numeric(), n_total_chimerics_bp_specific = numeric())
+
+
+for (tissueID in tissues) {
+
+  n_total <- all_transcripts %>% filter(tissue==tissueID) %>% summarise(n_distinct(comb)) %>% 
+    pull()
+
+bp_specific <- all_transcripts %>% 
+    group_by(comb) %>% 
+    mutate(num_tissues = n_distinct(tissue)) %>% filter(num_tissues==1, tissue==tissueID) %>% ungroup() %>% summarize(n_distinct(comb)) %>% 
+    pull()
+
+per_bp_specific <- bp_specific/n_total*100
+
+  n_total_chimerics <- all_transcripts %>% filter(tissue==tissueID, type=="chimeric") %>% summarise(n_distinct(comb)) %>% 
+    pull()
+  
+    n_total_chimerics_bp_specific <- all_transcripts %>% filter(type=="chimeric") %>%  group_by(comb) %>% 
+    mutate(num_tissues = n_distinct(tissue)) %>% filter(num_tissues==1, tissue==tissueID) %>% ungroup() %>% summarize(n_distinct(comb)) %>% 
+    pull()
+ 
+    per_chimeric <- n_total_chimerics_bp_specific/n_total_chimerics*100
+
+    
+      result <- data.frame(tissue = tissueID, n_total = n_total, bp_specific = bp_specific, per_bp_specific = per_bp_specific, n_total_chimerics = n_total_chimerics, n_total_chimerics_bp_specific = n_total_chimerics_bp_specific, per_chimeric = per_chimeric)
+
+      results <- rbind(results, result)
+
+}
+datatable(results)
+s3b<-results
+write.table(s3b, file="1DescriptiveAnalysis/Table_S3B.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+```
+
+
+After accounting for differences in the total number of transcripts assembled in each body part:
+
+```{r differences}
+rownames(results) <- results$tissue
+head_n <- results["head", "n_total_chimerics"]
+head_total <- results["head", "n_total"]
+round(head_n/head_total*100,1)
+
+gut_n <- results["gut", "n_total_chimerics"]
+gut_total <- results["gut", "n_total"]
+round(gut_n/gut_total*100,1)
+
+ovary_n <- results["ovary", "n_total_chimerics"]
+ovary_total <- results["ovary", "n_total"]
+round(ovary_n/ovary_total*100,1)
+
+prop.test(x=c(head_n, ovary_n),n=c(head_total, ovary_total))
+chisq.test(matrix(c(head_n, ovary_n,head_total, ovary_total),nrow=2))
+
+prop.test(x=c(head_n, gut_n),n=c(head_total, gut_total))
+chisq.test(matrix(c(head_n, gut_n,head_total, gut_total),nrow=2))
+
+prop.test(x=c(ovary_n, gut_n),n=c(ovary_total, gut_total))
+chisq.test(matrix(c(ovary_n, gut_n,ovary_total, gut_total),nrow=2))
+
+```
+
+Test of proportions of table S3B:
+
+```{r test-proportions-s3b}
+s3b<-results
+
+prop.test(x=c(s3b["head","n_total_chimerics_bp_specific"],
+              s3b["gut","n_total_chimerics_bp_specific"]), 
+          n=c(s3b["head","n_total_chimerics"],
+              s3b["gut","n_total_chimerics"]))
+chisq.test(matrix(c(s3b["head","n_total_chimerics_bp_specific"],
+              s3b["gut","n_total_chimerics_bp_specific"],s3b["head","n_total_chimerics"],
+              s3b["gut","n_total_chimerics"]),nrow=2))
+
+
+prop.test(x=c(s3b["head","n_total_chimerics_bp_specific"],
+              s3b["ovary","n_total_chimerics_bp_specific"]), 
+          n=c(s3b["head","n_total_chimerics"],
+              s3b["ovary","n_total_chimerics"]))
+chisq.test(matrix(c(s3b["head","n_total_chimerics_bp_specific"],
+              s3b["ovary","n_total_chimerics_bp_specific"],s3b["head","n_total_chimerics"], s3b["ovary","n_total_chimerics"]),nrow=2))
+
+prop.test(x=c(s3b["gut","n_total_chimerics_bp_specific"],
+              s3b["ovary","n_total_chimerics_bp_specific"]), 
+          n=c(s3b["head","n_total_chimerics"],
+              s3b["gut","n_total_chimerics"]))
+chisq.test(matrix(c(s3b["gut","n_total_chimerics_bp_specific"],
+              s3b["ovary","n_total_chimerics_bp_specific"],s3b["head","n_total_chimerics"], s3b["gut","n_total_chimerics"]),nrow=2))
+
+prop.test(x=c(s3b["head","n_total_chimerics_bp_specific"],
+              s3b["head","bp_specific"]), 
+          n=c(s3b["head","n_total_chimerics"],
+              s3b["head","n_total"]))
+chisq.test(matrix(c(s3b["head","n_total_chimerics_bp_specific"],
+              s3b["head","bp_specific"],s3b["head","n_total_chimerics"],
+              s3b["head","n_total"]),nrow=2))
+
+prop.test(x=c(s3b["gut","n_total_chimerics_bp_specific"],
+              s3b["gut","bp_specific"]), 
+          n=c(s3b["gut","n_total_chimerics"],
+              s3b["gut","n_total"]))
+chisq.test(matrix(c(s3b["gut","n_total_chimerics_bp_specific"],
+              s3b["gut","bp_specific"],s3b["gut","n_total_chimerics"],
+              s3b["gut","n_total"]),nrow=2))
+
+prop.test(x=c(s3b["ovary","n_total_chimerics_bp_specific"],
+              s3b["ovary","bp_specific"]), 
+          n=c(s3b["ovary","n_total_chimerics"],
+              s3b["ovary","n_total"]))
+chisq.test(matrix(c(s3b["ovary","n_total_chimerics_bp_specific"],
+              s3b["ovary","bp_specific"],s3b["ovary","n_total_chimerics"],
+              s3b["ovary","n_total"]),nrow=2))
+```
+
+```{r table-s3c}
+
+types <- c("All", "Overlap & AS insertions", "Internal insertions")
+lengths <- c("All", "≥120")
+strains <- c("All", "AKA-017",  "JUT-011", "MUN-016", "SLA-001", "TOM-007")
+
+# create a data frame with all combinations of types and lengths
+params <- expand.grid(strains, types, lengths)
+
+# create an empty data frame to store the results
+s3c <- data.frame(strain = character(), comparison = character(),
+                          proportion_1 = numeric(),
+                          proportion2 = numeric(),
+                          pval = numeric())
+# loop over the parameter combinations
+for (i in seq_len(nrow(params))) {
+  strainID <- params$Var1[i]
+  type <- params$Var2[i]
+  length <- params$Var3[i]
+  
+  # filter the data based on the type and length
+  if (type == "All") {
+    data <- chimerics
+    t1 <- "All"
+  } else if (type == "Overlap & AS insertions") {
+    data <- chimerics %>% filter(group == 1)
+    t1 <- "G1"
+  } else if (type == "Internal insertions") {
+    data <- chimerics %>% filter(group == 2)
+    t1 <- "G2"
+  }
+  
+  if (length == "≥120") {
+    data <- data %>% filter(TE_length_total >= 120)
+    t2 <- paste0(t1," - ≥120 -")
+  } else {
+    t2 <- paste0(t1," - ")
+  }
+  
+  if (strainID != "All") {
+      data <- data %>% filter(strain == strainID)
+      
+          n_total_head <- all_transcripts %>% filter(tissue=="head",strain == strainID)%>% summarize(n_distinct(comb)) %>% pull()
+        n_total_gut <- all_transcripts %>% filter(tissue=="gut",strain == strainID)%>% summarize(n_distinct(comb)) %>% pull()
+    n_total_ovary<- all_transcripts %>% filter(tissue=="ovary",strain == strainID)%>% summarize(n_distinct(comb)) %>% pull()
+    
+  } else {
+    n_total_head <- all_transcripts %>% filter(tissue=="head")%>% summarize(n_distinct(comb)) %>% pull()
+        n_total_gut <- all_transcripts %>% filter(tissue=="gut")%>% summarize(n_distinct(comb)) %>% pull()
+    n_total_ovary<- all_transcripts %>% filter(tissue=="ovary")%>% summarize(n_distinct(comb)) %>% pull()
+
+    
+  }
+  
+    n_head <- data %>% filter(tissue=="head") %>% summarise(n_distinct(id)) %>% pull()
+    head_per <- paste0(round(n_head/n_total_head*100,1),"%")
+    n_gut <- data %>% filter(tissue=="gut") %>% summarise(n_distinct(id)) %>% pull()
+    gut_per <- paste0(round(n_gut/n_total_gut*100,1),"%")
+    
+    n_ovary <- data %>% filter(tissue=="ovary") %>% summarise(n_distinct(id)) %>% pull()
+    ovary_per <- paste0(round(n_ovary/n_total_ovary*100,1),"%")
+    
+    #p_val_1 <- prop.test(x = c(n_head, n_gut),n = c(n_total_head, n_total_gut))$p.value
+    p_val_1 <- chisq.test(matrix(c(n_head, n_gut,n_total_head, n_total_gut ),nrow=2))$p.value
+    
+        # p_val_2 <- prop.test(x = c(n_head, n_ovary),n = c(n_total_head, n_total_ovary))$p.value
+            p_val_2 <- chisq.test(matrix(c(n_head, n_ovary,n_total_head, n_total_ovary),nrow=2))$p.value
+
+          #p_val_3 <- prop.test(x = c(n_gut, n_ovary),n = c(n_total_gut, n_total_ovary))$p.value
+           p_val_3 <- chisq.test(matrix(c(n_gut, n_ovary,n_total_gut, n_total_ovary),nrow=2))$p.value
+
+            
+      comparison <- paste0(t2, "head vs gut")          
+      result <- data.frame(strain = strainID, comparison = comparison,
+                          proportion_1 = head_per,
+                          proportion2 = gut_per,
+                          pval = p_val_1)
+
+      s3c <- rbind(s3c, result)
+      
+
+        comparison <- paste0(t2, "head vs ovary")          
+      result <- data.frame(strain = strainID, comparison = comparison,
+                          proportion_1 = head_per,
+                          proportion2 = ovary_per,
+                          pval = p_val_2)
+
+      s3c <- rbind(s3c, result)
+  
+              comparison <- paste0(t2, "gut vs ovary")          
+      result <- data.frame(strain = strainID, comparison = comparison,
+                          proportion_1 = gut_per,
+                          proportion2 = ovary_per,
+                          pval = p_val_3)
+
+      s3c <- rbind(s3c, result)
+      
+}
+datatable(s3c)
+write.table(s3c, file="1DescriptiveAnalysis/Table_S3C.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+
+```
+
+
+
+```{r figure-2}
+
+listTissues = list(`Head (1,001)`=unique(chimerics[chimerics$tissue=="head",]$id),
+                   `Gut (863)`=unique(chimerics[chimerics$tissue=="gut",]$id),
+                   `Ovary (772)`=unique(chimerics[chimerics$tissue=="ovary",]$id))
+
+f2a<-plot(euler(listTissues),
+          quantities = list(type = c("counts"), cex = 1.2), labels = list(cex = 1.2),
+          edges = list(col = "black"),
+          fills =list(fill = c("#CD96CD","#D9D9D9","#FFFACD"), alpha = 0.7)  )
+
+
+
+types <- c("All", "Overlap & AS insertions", "Internal insertions")
+strains <- c("AKA-017",  "JUT-011", "MUN-016", "SLA-001", "TOM-007")
+tissues <- c("head", "gut", "ovary")
+# create a data frame with all combinations of types and lengths
+params <- expand.grid(strains, types, tissues)
+
+# create an empty data frame to store the results
+f2b_data <- data.frame(strain = character(), tissue = character(), n_transcripts = numeric(), type = character())
+
+# loop over the parameter combinations
+for (i in seq_len(nrow(params))) {
+  strainID <- params$Var1[i]
+  type <- params$Var2[i]
+  tissueID <- params$Var3[i]
+  # filter the data based on the type and length
+  if (type == "All") {
+    data <- chimerics
+  } else if (type == "Overlap & AS insertions") {
+    data <- chimerics %>% filter(group == 1)
+  } else if (type == "Internal insertions") {
+    data <- chimerics %>% filter(group == 2)
+  }
+      
+  data <- data %>% filter(tissue==tissueID, strain==strainID)
+
+  
+         n_transcripts<- data %>% summarize(n_distinct(id)) %>% pull()
+
+        
+      result <- data.frame(strain =  strainID, tissue = tissueID, n_transcripts = n_transcripts, type = type)
+
+
+      f2b_data <- rbind(f2b_data, result)
+      
+}
+f2b_data$tissue <- factor(f2b_data$tissue, levels = c("head", "gut", "ovary"), labels = c("Head", "Gut", "Ovary"))
+f2b<-ggplot(f2b_data, aes(x=tissue, y = n_transcripts)) + 
+  geom_boxplot(fill="gray80") + 
+  geom_point(aes(color=strain)) + 
+  facet_grid(.~type ) + 
+  theme_Publication() + 
+  scale_colour_Publication() +
+  scale_y_continuous(breaks = pretty_breaks(8)) + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16)) + 
+  labs(color="Strain", x = "", y = "Number of chimeric gene-TE transcripts")
+
+plot_grid(f2a,NULL, f2b, ncol = 3, labels = c("A", "B"), label_size = 18,  rel_widths = c(1, 0.2, 1.5))
+
+ggsave(plot = plot_grid(f2a,NULL, f2b, ncol = 3, labels = c("A", "B"), label_size = 18,  rel_widths = c(1, 0.2, 1.5)), filename="FIGURES/Figure2.png", width = 13, height = 6)
+ggsave(plot = plot_grid(f2a,NULL, f2b, ncol = 3, labels = c("A", "B"), label_size = 18,  rel_widths = c(1, 0.1, 1.5)), filename="FIGURES/Figure2.pdf", width = 13, height = 6)
+
+
+```
+
+# 3. Location of TEs
+
+```{r position}
+# Number of transcripts and genes in the first exon
+length(unique(chimerics[chimerics$exon=="First exon",]$id))
+length(unique(chimerics[chimerics$exon=="First exon",]$gene))
+
+# Number of transcripts and genes in the last exon
+length(unique(chimerics[chimerics$exon=="Last exon",]$id))
+length(unique(chimerics[chimerics$exon=="Last exon",]$gene))
+
+# Number of transcripts and genes in middle exon
+length(unique(chimerics[chimerics$exon=="Middle exon",]$id))
+length(unique(chimerics[chimerics$exon=="Middle exon",]$gene))
+
+# Number of transcripts and genes in unique exon
+length(unique(chimerics[chimerics$exon=="Unique",]$id))
+length(unique(chimerics[chimerics$exon=="Unique",]$gene))
+```
+From Batut (2013) I retrieved a list of genes that was transfromed to FBgn id using FlyBase conversion tool.
+
+```{r batut}
+batut_list <- fread("1DescriptiveAnalysis/batut_2013_data/uniqueValidatedID_Batut.lst", header = F)
+length(unique(intersect(unique(chimerics[chimerics$exon=="First exon",]$gene),batut_list$V1)))
+```
+
+Using `genestats` on the annotation of genes of Drosophila I obtained the total sites of the genome that belong to 5'/3' UTR and exons (`enrichment_position`).
+
+
+
+```{table total-sequence}
+totalSequence <- read.table("1DescriptiveAnalysis/enrichment_position//resultsGeneStats.tsv", header = T, sep = "\t")
+
+totalSequenceLongORF <- totalSequence %>% group_by(geneID) %>% slice(which.max(trancriptLength))
+mean(totalSequenceLongORF$total5UTR)
+mean(totalSequenceLongORF$total3UTR)
+totalSequenceLongORF$middle <- totalSequenceLongORF$trancriptLength - (totalSequenceLongORF$total5UTR+totalSequenceLongORF$total3UTR)
+totalSequenceAnalyzed <- sum(totalSequenceLongORF$trancriptLength)
+totalSequenceAnalyzed5UTR <- sum(totalSequenceLongORF$total5UTR)
+totalSequenceAnalyzed3UTR <- sum(totalSequenceLongORF$total3UTR)
+totalSequenceAnalyzedMiddle <- sum(totalSequenceLongORF$middle)
+```
+
+```{table s4a}
+
+params <- expand.grid(types, lengths)
+
+table_s4a <- data.frame(type=as.character(),comparison=as.character(), genes=as.character(), proportion_1=as.numeric(), proportion_2=as.numeric(),pvalue=as.numeric())
+
+for (i in seq_len(nrow(params))) {
+  type <- params$Var1[i]
+  length <- params$Var2[i]
+  # filter the data based on the type and length
+  if (type == "All") {
+    data <- chimerics
+  } else if (type == "Overlap & AS insertions") {
+    data <- chimerics %>% filter(group == 1)
+  } else if (type == "Internal insertions") {
+    data <- chimerics %>% filter(group == 2)
+  }
+      
+  if (length == "≥120") {
+    data <- data %>% filter(TE_length_total >= 120)
+  } 
+ genes_total <- data %>% summarize(n_distinct(gene)) %>% pull()
+  genes_3_utr <- data %>% filter(exon=="Last exon") %>% summarize(n_distinct(gene)) %>% pull()
+  genes_5_utr <- data %>% filter(exon=="First exon") %>% summarize(n_distinct(gene)) %>% pull()
+ genes_internal <- data %>% filter(exon=="Middle exon") %>% summarize(n_distinct(gene)) %>% pull()
+ 
+   if (length == "≥120") {
+    title <- paste0(type," (",length,", ", genes_total,")")
+  } else {
+        title <- paste0(type," (", genes_total,")")
+  }
+ 
+t1<-prop.test(x=c(genes_3_utr, totalSequenceAnalyzed3UTR), n=c(genes_total, totalSequenceAnalyzed))
+t1.c<-chisq.test(matrix(c(genes_3_utr, totalSequenceAnalyzed3UTR,genes_total, totalSequenceAnalyzed),nrow=2))
+
+t2 <- prop.test(x=c(genes_5_utr, totalSequenceAnalyzed5UTR), n=c(genes_total, totalSequenceAnalyzed))
+t2.c<-chisq.test(matrix(c(genes_5_utr, totalSequenceAnalyzed5UTR,genes_total, totalSequenceAnalyzed),nrow=2))
+
+t3 <- prop.test(x=c(genes_internal, totalSequenceAnalyzedMiddle), n=c(genes_total, totalSequenceAnalyzed))
+t3.c<-chisq.test(matrix(c(genes_internal, totalSequenceAnalyzedMiddle ,genes_total, totalSequenceAnalyzed),nrow=2))
+
+result <- data.frame(type=c(title,title,title),comparison=c("3'UTR","5'UTR", "Internal"), genes=c(genes_3_utr,genes_5_utr, genes_internal), proportion_1=c(as.character(t1$estimate[1]),as.character(t2$estimate[1]),as.character(t3$estimate[1])), proportion_2=c(as.character(t1$estimate[2]),as.character(t2$estimate[2]),as.character(t3$estimate[2])),
+                     pvalue=c(t1.c$p.value,t2.c$p.value,t3.c$p.value))
+
+   table_s4a <- rbind(table_s4a,result)
+}
+  
+write.table(table_s4a, file="1DescriptiveAnalysis/Table_S4A.tab", col.names = T, row.names = F, sep = "\t", quote = F)
+  
+```
+
+
+We checked the frequency of insertions. We focused only in a subset of chimeric transcripts that have only 1 TE family annotated.
+
+```{r table s4b}
+
+ids <- chimerics %>% group_by(id) %>%
+  summarise(n=length(unique(TE_family)))  %>%
+  filter(n==1) %>% pull(id)
+
+chimerics_1TE <- chimerics[chimerics$id %in% ids,]
+
+ids <- chimerics_1TE %>% 
+  group_by(id) %>%
+  summarise(n=length(unique(exon)))  %>%
+  filter(n==1) %>% pull(id)
+
+chimerics_1TE_1pos <- chimerics_1TE[chimerics_1TE$id %in% ids,]
+
+
+frequency <- c("Strain-specific", "Shared across 5 strains", "Shared across 2-4 strains")
+position <- c("3'UTR", "5'UTR", "Internal exon")
+params <- expand.grid(frequency, position)
+
+table_s4b <- data.frame(frequency=as.character(),position=as.character(), chimeric_transcripts=as.numeric(), chimeric_transcripts_120=as.numeric(),pvalue=as.numeric())
+
+for (i in seq_len(nrow(params))) {
+  freq <- params$Var1[i]
+  pos <- params$Var2[i]
+  # filter the data based on the type and length
+  if (freq == "Strain-specific") {
+    data <- chimerics_1TE_1pos %>% 
+      group_by(id) %>%
+      mutate(n=length(unique(strain)))  %>%
+      filter(n==1)  %>% ungroup() 
+    
+  } else if (freq == "Shared across 5 strains") {
+
+    data <- chimerics_1TE_1pos %>% 
+      group_by(id) %>%
+      mutate(n=length(unique(strain)))  %>%
+      filter(n==5)  %>% ungroup() 
+        
+  } else if (freq == "Shared across 2-4 strains") {
+     data <- chimerics_1TE_1pos %>% 
+      group_by(id) %>%
+      mutate(n=length(unique(strain)))  %>%
+      filter(n>1,n<5) %>% ungroup() 
+  
+    }
+      
+  if (pos == "3'UTR") {
+    n <- data %>% filter(exon=="Last exon") %>% summarize(n_distinct(id)) %>% pull()
+    n_120 <- data %>% filter(exon=="Last exon", TE_length_total >= 120) %>% summarize(n_distinct(id)) %>% pull()
+  } else if (pos == "5'UTR") {
+      n <- data %>% filter(exon=="First exon") %>% summarize(n_distinct(id)) %>% pull()
+    n_120 <- data %>% filter(exon=="First exon", TE_length_total >= 120) %>% summarize(n_distinct(id)) %>% pull()  
+  } else if (pos == "Internal exon") {
+        n <- data %>% filter(exon=="Middle exon") %>% summarize(n_distinct(id)) %>% pull()
+    n_120 <- data %>% filter(exon=="Middle exon", TE_length_total >= 120) %>% summarize(n_distinct(id)) %>% pull()
+}
+
+result <- data.frame(frequency=freq,position=pos, chimeric_transcripts=n, chimeric_transcripts_120=n_120)
+
+table_s4b <- rbind(table_s4b, result)  
+
+}
+
+table_s4b
+
+write.table(table_s4b,file = "1DescriptiveAnalysis/Table_S4B.tab", col.names = T, row.names = F, sep = "\t", quote = F)
+```
+
+Test of proportions of table s4b
+
+```{r table-s4b-test}
+
+prop.test(x=c(255,97), n=c(1008,509))
+chisq.test(matrix(c(255,97, 1008,509),nrow=2))
+
+prop.test(x=c(483,242), n=c(1008,509)) 
+chisq.test(matrix(c(483,242,1008,509),nrow=2))
+
+prop.test(x=c(270,170), n=c(1008,509))
+chisq.test(matrix(c(270,170,1008,509),nrow=2))
+
+# 120
+prop.test(x=c(158,56), n=c(586,243))
+chisq.test(matrix(c(158,56, 586,243),nrow=2))
+
+prop.test(x=c(321,132), n=c(586,243)) 
+chisq.test(matrix(c(321,132, 586,243),nrow=2))
+
+prop.test(x=c(107,55), n=c(586,243))
+chisq.test(matrix(c(107,55, 586,243),nrow=2))
+
+```
+
+
+```{r}
+# overlap and AS 
+chimerics_1TE_1pos %>% 
+      filter(group==1)  %>% summarize(n_distinct(id)) 
+chimerics_1TE_1pos %>% 
+      filter(group==1) %>% group_by(exon) %>% summarize(n_distinct(id)) 
+# internal
+chimerics_1TE_1pos %>% 
+      filter(group==2)  %>% summarize(n_distinct(id)) 
+chimerics_1TE_1pos %>% 
+      filter(group==2) %>% group_by(exon) %>% summarize(n_distinct(id)) 
+
+
+# overlap and AS 
+chimerics_1TE_1pos %>% 
+      filter(group==1,TE_length_total>=120)  %>% summarize(n_distinct(id)) 
+chimerics_1TE_1pos %>% 
+      filter(group==1,TE_length_total>=120) %>% group_by(exon) %>% summarize(n_distinct(id)) 
+# internal
+chimerics_1TE_1pos %>% 
+      filter(group==2,TE_length_total>=120)  %>% summarize(n_distinct(id)) 
+chimerics_1TE_1pos %>% 
+      filter(group==2,TE_length_total>=120) %>% group_by(exon) %>% summarize(n_distinct(id))
+
+# test of proportions
+prop.test(x=c(42, 414), n=c(586, 1199))
+chisq.test(matrix(c(42, 414, 586, 1199),nrow=2))
+
+prop.test(x=c(25, 143), n=c(482, 506))
+chisq.test(matrix(c(25, 143, 482, 506),nrow=2))
+
+```
+
+```{r table s4d}
+
+tissues <- c("head", "gut", "ovary")
+types <- c("All", "Overlap & AS insertions", "Internal insertions")
+frequency <- c("Strain-specific", "Shared across 5 strains", "Shared across 2-4 strains")
+position <- c("3'UTR", "5'UTR", "Internal exon")
+params <-  expand.grid(frequency, position, tissues, types)
+
+table_s4d <- data.frame(tissue=as.character(), group=as.character(), frequency=as.character(),position=as.character(), chimeric_transcripts=as.numeric())
+
+for (i in seq_len(nrow(params))) {
+  tissueID <- params$Var3[i]
+  type <- params$Var4[i]
+  freq <- params$Var1[i]
+  pos <- params$Var2[i]
+  # filter the data based on the type and length
+    if (type =="All") {
+       data <- chimerics_1TE_1pos 
+    } else if (type =="Overlap & AS insertions") {
+       data <- chimerics_1TE_1pos %>% filter(group==1)
+    } else if (type == "Internal insertions") {
+       data <- chimerics_1TE_1pos %>% filter(group==2)
+    }
+  
+  if (freq == "Strain-specific") {
+    data <- data %>%
+      group_by(id) %>%
+      mutate(n=length(unique(strain)))  %>%
+      filter(n==1, tissue==tissueID)  %>% ungroup() 
+    
+  } else if (freq == "Shared across 5 strains") {
+
+    data <- data %>%  
+      group_by(id) %>%
+      mutate(n=length(unique(strain)))  %>%
+      filter(n==5, tissue==tissueID)  %>% ungroup() 
+        
+  } else if (freq == "Shared across 2-4 strains") {
+     data <- data %>%  
+      group_by(id) %>%
+      mutate(n=length(unique(strain)))  %>%
+      filter(n>1,n<5, tissue==tissueID) %>% ungroup() 
+  
+  }
+  
+  
+      
+  if (pos == "3'UTR") {
+    n <- data %>% filter(exon=="Last exon") %>% summarize(n_distinct(id)) %>% pull()
+  } else if (pos == "5'UTR") {
+      n <- data %>% filter(exon=="First exon") %>% summarize(n_distinct(id)) %>% pull()
+  } else if (pos == "Internal exon") {
+        n <- data %>% filter(exon=="Middle exon") %>% summarize(n_distinct(id)) %>% pull()
+}
+
+result <- data.frame(tissue=str_to_title(tissueID), group=type, frequency=freq,position=pos, chimeric_transcripts=n)
+
+table_s4d <- rbind(table_s4d, result)  
+
+}
+
+table_s4d
+
+write.table(table_s4d,file = "1DescriptiveAnalysis/Table_S4D.tab", col.names = T, row.names = F, sep = "\t", quote = F)
+
+```
+
+
+```{r figure s3a}
+
+frequency <- c("Strain-specific", "Shared across\n2-5 strains")
+position <- c("3'UTR", "5'UTR", "Internal exon")
+params <- expand.grid(frequency, position)
+
+fig_s3a_df <- data.frame(frequency=as.character(),position=as.character(), chimeric_transcripts=as.numeric())
+
+for (i in seq_len(nrow(params))) {
+  freq <- params$Var1[i]
+  pos <- params$Var2[i]
+  # filter the data based on the type and length
+
+  
+  if (freq == "Strain-specific") {
+    data <- chimerics_1TE_1pos %>% 
+      group_by(id) %>%
+      mutate(n=length(unique(strain)))  %>%
+      filter(n==1)  %>% ungroup() 
+    
+  } else if (freq == "Shared across\n2-5 strains") {
+     data <- chimerics_1TE_1pos %>% 
+      group_by(id) %>%
+      mutate(n=length(unique(strain)))  %>%
+      filter(n>1,n<=5) %>% ungroup() 
+  
+    }
+      
+  if (pos == "3'UTR") {
+    n <- data %>% filter(exon=="Last exon") %>% summarize(n_distinct(id)) %>% pull()
+  } else if (pos == "5'UTR") {
+      n <- data %>% filter(exon=="First exon") %>% summarize(n_distinct(id)) %>% pull()
+  } else if (pos == "Internal exon") {
+        n <- data %>% filter(exon=="Middle exon") %>% summarize(n_distinct(id)) %>% pull()
+}
+
+result <- data.frame(frequency=freq,position=pos, chimeric_transcripts=n)
+
+fig_s3a_df <- rbind(fig_s3a_df, result)  
+
+}
+
+fig_s3a_df
+
+fig_s3a_df$position <- factor(fig_s3a_df$position, levels=c("5'UTR", "Internal exon","3'UTR"))
+f3a<-ggplot(fig_s3a_df, aes(y=chimeric_transcripts, x = position)) + geom_col(aes(fill=frequency))   + theme_Publication() + scale_fill_manual(values= c("#386cb0", "#a6cee3")) + labs(fill="Frequency", x = "", y = "Number of gene-TE chimeric transcripts")  +   scale_y_continuous(expand = c(0, 0))  + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank())   +   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16)) + ylim(c(0,800))
+
+```
+
+
+```{r figure s3b}
+table_s4d$tissue<-factor(table_s4d$tissue, levels=c("Head", "Gut", "Ovary"))
+table_s4d$group<-factor(table_s4d$group, labels=c("All", "Overlap &\nAS insertions", "Internal\ninsertions"))
+table_s4d$position<-factor(table_s4d$position, labels=c("3'UTR", "5'UTR", "Internal\nexon"))
+
+f3b<-ggplot(table_s4d, aes(y=chimeric_transcripts, x = position)) + geom_boxplot(fill="gray90") + geom_point(aes(color=frequency)) + facet_grid(group~tissue ) + theme_Publication() + scale_colour_Publication()  + labs(color="Frequency", x = "", y = "Number of gene-TE chimeric transcripts") + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16))
+f3b
+
+table_s4d$position<-factor(table_s4d$position, levels=c("5'UTR","Internal\nexon","3'UTR"))
+f3b<-ggplot(table_s4d, aes(y=chimeric_transcripts, x = position)) + geom_col(position="stack",aes(fill=frequency))  + facet_grid(group~tissue ) + theme_Publication() + scale_fill_Publication()  + labs(fill="Frequency", x = "", y = "Number of gene-TE chimeric transcripts") + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16))
+f3b
+
+```
+
+```{r figure3}
+
+ggsave(plot_grid(f3a,f3b,  align="h", axis = "b", labels = c("A","B"), label_size = 18,  rel_widths = c(0.45, 1)),file="FIGURES/Figure3.png", width = 15, height = 6.5)
+ggsave(plot_grid(f3a,f3b,  align="h", axis = "b", labels = c("A","B"), label_size = 18,  rel_widths = c(0.45, 1)),file="FIGURES/Figure3.pdf", width = 15, height = 6.5)
+ggsave(plot_grid(f3a,f3b,  align="h", axis = "b", labels = c("A","B"), label_size = 18,  rel_widths = c(0.45, 1)),file="FIGURES/Figure3.svg", width = 15, height = 6.5)
+```
+
+# 4. Chimeric gene-TE transcripts are enriched for retrotransposon insertions
+
+```{r TE-data}
+
+TE_library_family_all <- fread("../../../DATA/TEs/TE_library_family.csv")
+  
+```
+
+The total number of sequences in the curated TE library is `r length(unique(TE_library_family_all$Consensus_ID))` which belong to `r length(unique(TE_library_family_all$Family))` families.
+
+```{r te-families-chimerics}
+length(unique(chimerics$TE_family))
+```
+
+```{r table-s5a}
+table_s5a<-chimerics %>% group_by(TE_family) %>% summarize( paste0(str_to_title(sort(unique(tissue))), collapse = ";"))
+colnames(table_s5a) <- c("TE family", "Body part")
+TE_missing<-as.data.frame(setdiff( TE_library_family_all$Family, table_s5a$`TE family`))
+colnames(TE_missing) <- "TE family"
+TE_missing$`Body part` <- "Not detected"
+table_s5a <- rbind(table_s5a, TE_missing)
+target <- c("Head", "Gut", "Ovary", "Gut;Head", "Head;Ovary", "Gut;Ovary", "Gut;Head;Ovary", "Not detected")
+table_s5a<- table_s5a %>% arrange(factor(`Body part`, levels = target))
+
+
+write.table(table_s5a, file="1DescriptiveAnalysis/Table_S5A.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+
+table_s5a %>% group_by(`Body part`) %>% summarize(n())
+```
+New analysis on the motif scan of sequences of other types of elements: solo LTR roo, INE-1, body part specific families.
+
+```{r scan-motifs-new}
+TE_fam_sp <- table_s5a %>% filter(`Body part` == "Gut" | `Body part` == "Ovary" | `Body part` == "Head")
+chimerics_fam_sp <- chimerics[chimerics$TE_family %in% TE_fam_sp$`TE family`,c("transcript_trinity","tissue","strain","gene","transcript","transcript_trinity","TE_consensus","TE_family","id")]
+chimerics_fam_sp$type <- "Body-part specific TE"
+chimerics_INE <- chimerics[chimerics$TE_family=="INE-1",c("transcript_trinity","tissue","strain","gene","transcript","transcript_trinity","TE_consensus","TE_family","id")]
+chimerics_INE$type <- "INE-1"
+chimerics_roo_solo_LTR <- chimerics[chimerics$roo_type=="LTR",c("transcript_trinity","tissue","strain","gene","transcript","transcript_trinity","TE_consensus","TE_family","id")]
+chimerics_roo_solo_LTR$type <- "Roo solo LTR"
+
+chimerics_motif_scan <- unique(rbind(chimerics_fam_sp,chimerics_INE, chimerics_roo_solo_LTR))
+
+write.table(chimerics_motif_scan,file = "../motif_scan/chimerics_motif_scan.tab", col.names = T, row.names = F, quote = F, sep = "\t")
+```
+
+
+```{r table s5b}
+AKA <- fread("../../../DATA/common_name/AKA-017.bed")
+AKA$strain <- "AKA-017"
+
+JUT <- fread("../../../DATA/common_name/JUT-011.bed")
+JUT$strain <- "JUT-011"
+
+MUN <- fread("../../../DATA/common_name/MUN-016.bed")
+MUN$strain <- "MUN-016"
+
+TOM <- fread("../../../DATA/common_name/TOM-007.bed")
+TOM$strain <- "TOM-007"
+
+SLA <- fread("../../../DATA/common_name/SLA-001.bed")
+SLA$strain <- "SLA-001"
+
+strains_TEs <- rbind(AKA,JUT,MUN,TOM,SLA)
+
+strains_TEs2 <- merge(strains_TEs, unique(TE_library_family_all[,c("Family", "SuperFamily", "Order", "Class")]), by.x="V7", by.y="Family") 
+
+strains_TEs2<-strains_TEs2[,c("strain", "SuperFamily", "Order", "Class")]
+
+table_s5b<-strains_TEs2%>%group_by(Class,Order,SuperFamily,strain) %>%summarize(n=n()) %>% spread(key = strain, value = n)
+
+write.table(table_s5b, file="1DescriptiveAnalysis/Table_S5B.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+
+```
+
+Chimeric TEs with retrotransposons:
+
+```{r retrotransposon-chimerics}
+length(unique(chimerics$TE_family))
+length(unique(chimerics[chimerics$TE_class=="RNA",]$TE_family))
+
+prop.test(x=c(70,1178), n=c(90,1953.8))
+chisq.test(matrix(c(70,1178,90,1953.8), nrow = 2))
+
+```
+
+```{r grup-differences-s5c}
+chimerics%>%group_by(group) %>% summarize(n_distinct(TE_family))
+chimerics%>%group_by(group) %>% filter(TE_class=="RNA") %>% summarize(n_distinct(TE_family))
+
+prop.test(x=c(75,68),n=c(90,90))
+chisq.test(matrix(c(75,68,90,90), nrow = 2))
+
+ chimerics%>%group_by(group,TE_class)  %>% summarize(n_distinct(TE_family))
+ prop.test(x=c(55,20),n=c(75,75))
+chisq.test(matrix(c(55,20,75,75), nrow = 2))
+chisq.test(matrix(c(55,1178,75,1953.8), nrow = 2))
+
+ prop.test(x=c(52,16),n=c(68,68))
+chisq.test(matrix(c(52,16,68,68), nrow = 2))
+chisq.test(matrix(c(52,1178,68,1953.8), nrow = 2))
+
+```
+
+
+```{r figure4}
+color_map_families<-c(roo = "#FAFD7CFF", `INE-1` = "#82491EFF", LARD = "#24325FFF", 
+`P-element` = "#B7E4F9FF", `1360` = "#FB6467FF", `Gypsy-2_Dsim` = "#526E2DFF", 
+`S-element` = "#E762D7FF", jockey = "#E89242FF", hopper2 = "#FAE48BFF", 
+HB = "#A6EEE6FF", `297` = "#917C5DFF", Others = "#69C8ECFF")
+
+TE_chim_global_TE_commonTE <- unique(chimerics[,c("gene", "TE_family")])
+occurrencesTE<-as.data.frame(table(TE_chim_global_TE_commonTE$TE_family))
+ggplot(occurrencesTE, aes(x=Var1,y=Freq)) + geom_col()
+occurrencesTE<-as.data.frame(table(TE_chim_global_TE_commonTE$TE_family))
+ggplot(occurrencesTE, aes(x=Var1,y=Freq)) + geom_col()
+occurrencesTE$Var1<-as.character(occurrencesTE$Var1)
+occurrencesTE[occurrencesTE$Freq<9,]$Var1 <- "Others"
+occurrencesTE<-aggregate(occurrencesTE$Freq, by=list(Category=occurrencesTE$Var1), FUN=sum)
+occurrencesTE$Category <- factor(occurrencesTE$Category, levels=c(arrange(occurrencesTE,-x)%>%pull(Category) %>% subset(. != "Others"),"Others"))
+occurrencesTE<-occurrencesTE %>% 
+  group_by(Category) %>% 
+  mutate(per=x/sum(occurrencesTE$x)) %>% 
+  arrange(desc(Category))
+occurrencesTE$label <- scales::percent(occurrencesTE$per)
+occurrencesTE$label <- scales::percent(occurrencesTE$per, accuracy = 0.1)
+occurrencesTE_all<-occurrencesTE
+
+p1<-ggplot(occurrencesTE) + geom_col(width=1, aes(x="",y=per,fill=Category)) + coord_polar("y", start=0) +
+  theme_void() + scale_fill_manual(values=color_map_families) + geom_label_repel(aes(x="",y= cumsum(per) - per/2,label = label), size=4, show.legend = F, max.overlaps = 15, nudge_x = 0.1)  +  theme(plot.title = element_text(face = "bold")) +
+  theme(plot.title = element_text(hjust = 0.5)) + labs(fill="TE family")  + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16))
+p1
+
+
+TE_chim_global_TE_g1 <- chimerics[chimerics$group==1,]
+TE_chim_global_TE_commonTE <- unique(TE_chim_global_TE_g1[,c("gene", "TE_family")])
+occurrencesTE<-as.data.frame(table(TE_chim_global_TE_commonTE$TE_family))
+ggplot(occurrencesTE, aes(x=Var1,y=Freq)) + geom_col()
+occurrencesTE<-as.data.frame(table(TE_chim_global_TE_commonTE$TE_family))
+ggplot(occurrencesTE, aes(x=Var1,y=Freq)) + geom_col()
+occurrencesTE$Var1<-as.character(occurrencesTE$Var1)
+occurrencesTE[occurrencesTE$Freq<9,]$Var1 <- "Others"
+occurrencesTE<-aggregate(occurrencesTE$Freq, by=list(Category=occurrencesTE$Var1), FUN=sum)
+occurrencesTE$Category <- factor(occurrencesTE$Category, levels=c(arrange(occurrencesTE,-x)%>%pull(Category) %>% subset(. != "Others"),"Others"))
+
+occurrencesTE<-occurrencesTE %>% 
+  group_by(Category) %>% 
+  mutate(per=x/sum(occurrencesTE$x)) %>% 
+  arrange(desc(Category))
+occurrencesTE$label <- scales::percent(occurrencesTE$per)
+occurrencesTE$label <- scales::percent(occurrencesTE$per, accuracy = 0.1)
+occurrencesTE_g1<-occurrencesTE
+
+p2<-ggplot(occurrencesTE) + geom_col(width=1, aes(x="",y=per,fill=Category)) + coord_polar("y", start=0) +
+  theme_void() + scale_fill_manual(values=color_map_families) + geom_label_repel(aes(x="",y= cumsum(per) - per/2,label = label), size=4, show.legend = F, max.overlaps = 15, nudge_x = 0.1)  +  theme(plot.title = element_text(face = "bold")) +
+  theme(plot.title = element_text(hjust = 0.5)) + labs(fill="TE family")  + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16))
+p2
+
+
+TE_chim_global_TE_g2 <- chimerics[chimerics$group==2,]
+TE_chim_global_TE_commonTE <- unique(TE_chim_global_TE_g2[,c("gene", "TE_family")])
+occurrencesTE<-as.data.frame(table(TE_chim_global_TE_commonTE$TE_family))
+ggplot(occurrencesTE, aes(x=Var1,y=Freq)) + geom_col()
+occurrencesTE<-as.data.frame(table(TE_chim_global_TE_commonTE$TE_family))
+ggplot(occurrencesTE, aes(x=Var1,y=Freq)) + geom_col()
+occurrencesTE$Var1<-as.character(occurrencesTE$Var1)
+occurrencesTE[occurrencesTE$Freq<9,]$Var1 <- "Others"
+occurrencesTE<-aggregate(occurrencesTE$Freq, by=list(Category=occurrencesTE$Var1), FUN=sum)
+occurrencesTE$Category <-  factor(occurrencesTE$Category, levels=c(arrange(occurrencesTE,-x)%>%pull(Category) %>% subset(. != "Others"),"Others"))
+occurrencesTE<-occurrencesTE %>% 
+  group_by(Category) %>% 
+  mutate(per=x/sum(occurrencesTE$x)) %>% 
+  arrange(desc(Category))
+occurrencesTE$label <- scales::percent(occurrencesTE$per)
+occurrencesTE$label <- scales::percent(occurrencesTE$per, accuracy = 0.1)
+occurrencesTE_g2<-occurrencesTE
+
+p3<-ggplot(occurrencesTE) + geom_col(width=1, aes(x="",y=per,fill=Category)) + coord_polar("y", start=0) +
+  theme_void() + scale_fill_manual(values=color_map_families) + geom_label_repel(aes(x="",y= cumsum(per) - per/2,label = label), size=4, show.legend = F, max.overlaps = 15, nudge_x = 0.1)  +  theme(plot.title = element_text(face = "bold")) +
+  theme(plot.title = element_text(hjust = 0.5)) + labs(fill="TE family")  + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16))
+p3
+
+ggarrange(p1 + ggtitle("All"), p2+ ggtitle("Overlap & AS insertions"), p3+ ggtitle("Internal insertions"),   nrow=1, common.legend = TRUE, legend="bottom")
+ggsave("FIGURES/Figure4.png", width = 12, height = 5)
+ggsave("FIGURES/Figure4.pdf", width = 12, height = 5)
+ggsave("FIGURES/Figure4.svg", width = 12, height = 5)
+
+
+TE_chim_global_TE_120 <- chimerics[chimerics$TE_length_total>=120,]
+TE_chim_global_TE_commonTE <- unique(TE_chim_global_TE_120[,c("gene", "TE_family")])
+occurrencesTE<-as.data.frame(table(TE_chim_global_TE_commonTE$TE_family))
+ggplot(occurrencesTE, aes(x=Var1,y=Freq)) + geom_col()
+occurrencesTE<-as.data.frame(table(TE_chim_global_TE_commonTE$TE_family))
+ggplot(occurrencesTE, aes(x=Var1,y=Freq)) + geom_col()
+occurrencesTE$Var1<-as.character(occurrencesTE$Var1)
+occurrencesTE[occurrencesTE$Freq<15,]$Var1 <- "Others"
+occurrencesTE<-aggregate(occurrencesTE$Freq, by=list(Category=occurrencesTE$Var1), FUN=sum)
+occurrencesTE$Category <- factor(occurrencesTE$Category, levels=c(arrange(occurrencesTE,-x)%>%pull(Category) %>% subset(. != "Others"),"Others"))
+
+occurrencesTE<-occurrencesTE %>% 
+  group_by(Category) %>% 
+  mutate(per=x/sum(occurrencesTE$x)) %>% 
+  arrange(desc(Category))
+occurrencesTE$label <- scales::percent(occurrencesTE$per)
+occurrencesTE$label <- scales::percent(occurrencesTE$per, accuracy = 0.1)
+occurrencesTE_all_120<-occurrencesTE
+
+p1_120<-ggplot(occurrencesTE) + geom_col(width=1, aes(x="",y=per,fill=Category)) + coord_polar("y", start=0) +
+  theme_void() + scale_fill_manual(values=color_map_families) + geom_label_repel(aes(x="",y= cumsum(per) - per/2,label = label), size=4, show.legend = F, max.overlaps = 15, nudge_x = 0.1)  +  theme(plot.title = element_text(face = "bold")) +
+  theme(plot.title = element_text(hjust = 0.5)) + labs(fill="TE family")  + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16))
+p1_120
+
+TE_chim_global_TE_g1_120 <- chimerics[chimerics$group==1 & chimerics$TE_length_total>=120,]
+TE_chim_global_TE_commonTE <- unique(TE_chim_global_TE_g1_120[,c("gene", "TE_family")])
+occurrencesTE<-as.data.frame(table(TE_chim_global_TE_commonTE$TE_family))
+ggplot(occurrencesTE, aes(x=Var1,y=Freq)) + geom_col()
+occurrencesTE<-as.data.frame(table(TE_chim_global_TE_commonTE$TE_family))
+ggplot(occurrencesTE, aes(x=Var1,y=Freq)) + geom_col()
+occurrencesTE$Var1<-as.character(occurrencesTE$Var1)
+occurrencesTE[occurrencesTE$Freq<15,]$Var1 <- "Others"
+occurrencesTE<-aggregate(occurrencesTE$Freq, by=list(Category=occurrencesTE$Var1), FUN=sum)
+occurrencesTE$Category <- factor(occurrencesTE$Category, levels=c(arrange(occurrencesTE,-x)%>%pull(Category) %>% subset(. != "Others"),"Others"))
+
+occurrencesTE<-occurrencesTE %>% 
+  group_by(Category) %>% 
+  mutate(per=x/sum(occurrencesTE$x)) %>% 
+  arrange(desc(Category))
+occurrencesTE$label <- scales::percent(occurrencesTE$per)
+occurrencesTE$label <- scales::percent(occurrencesTE$per, accuracy = 0.1)
+occurrencesTE_g1_120<-occurrencesTE
+
+
+p2_120<-ggplot(occurrencesTE) + geom_col(width=1, aes(x="",y=per,fill=Category)) + coord_polar("y", start=0) +
+  theme_void() + scale_fill_manual(values=color_map_families) + geom_label_repel(aes(x="",y= cumsum(per) - per/2,label = label), size=4, show.legend = F, max.overlaps = 15, nudge_x = 0.1)  +  theme(plot.title = element_text(face = "bold")) +
+  theme(plot.title = element_text(hjust = 0.5)) + labs(fill="TE family")  + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16))
+p2_120
+
+TE_chim_global_TE_g2_120 <- chimerics[chimerics$group==2 & chimerics$TE_length_total>=120,]
+TE_chim_global_TE_commonTE <- unique(TE_chim_global_TE_g2_120[,c("gene", "TE_family")])
+occurrencesTE<-as.data.frame(table(TE_chim_global_TE_commonTE$TE_family))
+ggplot(occurrencesTE, aes(x=Var1,y=Freq)) + geom_col()
+occurrencesTE<-as.data.frame(table(TE_chim_global_TE_commonTE$TE_family))
+ggplot(occurrencesTE, aes(x=Var1,y=Freq)) + geom_col()
+occurrencesTE$Var1<-as.character(occurrencesTE$Var1)
+occurrencesTE[occurrencesTE$Freq<15,]$Var1 <- "Others"
+occurrencesTE<-aggregate(occurrencesTE$Freq, by=list(Category=occurrencesTE$Var1), FUN=sum)
+occurrencesTE$Category <-  factor(occurrencesTE$Category, levels=c(arrange(occurrencesTE,-x)%>%pull(Category) %>% subset(. != "Others"),"Others"))
+occurrencesTE<-occurrencesTE %>% 
+  group_by(Category) %>% 
+  mutate(per=x/sum(occurrencesTE$x)) %>% 
+  arrange(desc(Category))
+occurrencesTE$label <- scales::percent(occurrencesTE$per)
+occurrencesTE$label <- scales::percent(occurrencesTE$per, accuracy = 0.1)
+occurrencesTE_g2_120<-occurrencesTE
+
+p3_120<-ggplot(occurrencesTE) + geom_col(width=1, aes(x="",y=per,fill=Category)) + coord_polar("y", start=0) +
+  theme_void() + scale_fill_manual(values=color_map_families) + geom_label_repel(aes(x="",y= cumsum(per) - per/2,label = label), size=4, show.legend = F, max.overlaps = 15, nudge_x = 0.1)  +  theme(plot.title = element_text(face = "bold")) +
+  theme(plot.title = element_text(hjust = 0.5)) + labs(fill="TE family")  + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16))
+p3_120
+
+ggarrange(p1_120 + ggtitle("All"), p2_120+ ggtitle("Overlap & AS insertions"), p3_120+ ggtitle("Internal insertions"),   nrow=1, common.legend = TRUE, legend="bottom")
+ggsave("FIGURES/FigureS3.png", width = 12, height = 5)
+ggsave("FIGURES/FigureS3.pdf", width = 12, height = 5)
+ggsave("FIGURES/FigureS3.svg", width = 12, height = 5)
+```
+
+Family abundance
+
+```{r family_abundance}
+# all
+strains <- c("AKA-017",  "JUT-011", "MUN-016", "SLA-001", "TOM-007")
+
+resultTEfam<-data.frame()
+TEpercentageanalysis<-data.frame()
+for (assemblyName in strains) {
+  
+  TE_chim_global_assembly <- chimerics[chimerics$strain==assemblyName,]
+  TE_chim_global_assembly_commonTE <- unique(TE_chim_global_assembly[,c("gene", "TE_family")])
+  
+  occurrencesTE_chim_assembly<-as.data.frame(table(TE_chim_global_assembly_commonTE$TE_family))
+  ggplot(occurrencesTE_chim_assembly, aes(x=Var1,y=Freq)) + geom_col()
+  # total ocurrences 1490: because some genes have more than one TE annotated
+  occurrencesTE_chim_assembly$percentage <- occurrencesTE_chim_assembly$Freq/sum(occurrencesTE_chim_assembly$Freq)
+  
+  TE_bed_assembly <- fread(paste0("../../../DATA/common_name/",assemblyName,".bed"))
+  TE_bed_assembly <- TE_bed_assembly[,"V7"]
+  TE_assembly_occurrences <- as.data.frame(table(TE_bed_assembly$V7))
+  TE_assembly_occurrences$percentage <- TE_assembly_occurrences$Freq/sum(TE_assembly_occurrences$Freq)
+  TE_assembly_occurrences$assembly<-assemblyName
+  TEpercentageanalysis <- rbind(TE_assembly_occurrences, TEpercentageanalysis)
+  occurrencesTE_chim_assembly <- occurrencesTE_chim_assembly[occurrencesTE_chim_assembly$Var1 %in% TE_assembly_occurrences$Var1,]
+  for ( TE in 1:nrow(occurrencesTE_chim_assembly)) {
+    TEname<-as.character(occurrencesTE_chim_assembly[TE,]$Var1)
+    
+    #pval<-prop.test(x=c(occurrencesTE_chim_assembly[occurrencesTE_chim_assembly$Var1==TEname,]$Freq,TE_assembly_occurrences[TE_assembly_occurrences$Var1==TEname,]$Freq),n=c(sum(occurrencesTE_chim_assembly$Freq),sum(TE_assembly_occurrences$Freq)))$p.value
+    pval<-chisq.test(matrix(c(occurrencesTE_chim_assembly[occurrencesTE_chim_assembly$Var1==TEname,]$Freq,TE_assembly_occurrences[TE_assembly_occurrences$Var1==TEname,]$Freq,sum(occurrencesTE_chim_assembly$Freq),sum(TE_assembly_occurrences$Freq)), nrow = 2))$p.value
+
+    if (pval < 0.05) {
+      if ( occurrencesTE_chim_assembly[TE,]$percentage > TE_assembly_occurrences[TE_assembly_occurrences$Var1==TEname,]$percentage) {
+        result<-"Over-represented in chimeric transcripts"
+      }
+      else {
+        result<-"Under-represented  in chimeric transcripts"
+      }
+      
+    } else {
+      result <- "Not significant"
+    }
+    resultTEfam<-rbind(resultTEfam,data.frame(TEname,assemblyName,pval,occurrencesTE_chim_assembly[occurrencesTE_chim_assembly$Var1==TEname,]$percentage,TE_assembly_occurrences[TE_assembly_occurrences$Var1==TEname,]$percentage,TE_assembly_occurrences[TE_assembly_occurrences$Var1==TEname,]$Freq,result))
+  }
+  
+}
+colnames(resultTEfam) <- c("TE family", "Assembly", "P-value", "% chimeric transcripts", "% genome strain", "# copies genome", "Result")
+resultTEfamFilter <- resultTEfam[resultTEfam$`# copies genome` >= 20,]
+
+write.table(resultTEfamFilter, file="1DescriptiveAnalysis/Table_S5D.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+
+```
+
+```{r table-s5e}
+occurrencesTE_all$type<-"All"
+occurrencesTE_g1$type<-"Overlap and AS insertions"
+occurrencesTE_g2$type<-"Internal insertions"
+occurrencesTE_all_120$type<-"All (≥120 bp)"
+occurrencesTE_g1_120$type<-"Overlap and AS insertions (≥120 bp)"
+occurrencesTE_g2_120$type<-"Internal insertions (≥120 bp)"
+
+s5e <- rbind(occurrencesTE_all,
+             occurrencesTE_g1,
+             occurrencesTE_g2,
+             occurrencesTE_all_120,
+             occurrencesTE_g1_120,
+             occurrencesTE_g2_120)
+colnames(s5e) <- c("TE family", "Number of chimeric genes", "Percentage", "Label","Type")
+s5e$Label <- NULL
+s5e<-s5e[,c("Type","TE family", "Number of chimeric genes","Percentage")]
+write.table(s5e, file="1DescriptiveAnalysis/Table_S5E.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+
+```
+
+The transcripts that are categorized as "other" in roo_type, are revisited because it can be that the blast with the roo consensus was too stringent to give a result. So I recheck them in the folder "recover_roo_other". They could be reclassified as other or LTR, except one, that is truly matching other part of the roo, but only affects one type of chimeric (id=1569).
+
+```{r repeat-roo}
+roo_revise <- fread("../roo_analysis/recover_roo_other/result.tab", header = F)
+colnames(roo_revise) <- c("tissue", "strain", "transcript", "transcript_trinity", "roo_type", "coordTE","rooPos","n")
+roo_revise$n <- NULL
+roo_revise$rooPos <- NULL
+roo_revise$TE_family<-"roo"
+chimerics_v2 <- merge(chimerics, unique(roo_revise), by = c("tissue","strain","transcript","transcript_trinity","TE_family","coordTE"), all.x = TRUE)
+
+# replace the values in col3 of the merged data frame with the values from col3 of the second data frame
+chimerics_v2$roo_type <- ifelse(!is.na(chimerics_v2$roo_type.y),chimerics_v2$roo_type.y, chimerics_v2$roo_type.x)
+chimerics_v2$roo_type.x<-NULL
+chimerics_v2$roo_type.y<-NULL
+chimerics<-chimerics_v2
+#write.table(chimerics, "../clean_set_minimap2/chimerics_v2.tab", quote = F, sep = "\t", row.names = F, col.names = T)
+
+# Insertions LTR
+chimerics %>% filter(roo_type=="LTR") %>% 
+  select(tissue,strain,gene,coordTE,group) %>% unique()
+
+# Insertions repetitive region length
+chimerics %>% filter(roo_type=="repeat") %>% summarize(min(TE_length_total), max(TE_length_total))
+
+chimerics %>% filter(roo_type=="repeat") %>% 
+  select(tissue,strain,gene,coordTE,group) %>% unique()
+```
+
+The analyses on roo can be found in "roo_analyses". I performed the blast scan and the simulans analysis.
+```{r table-s5f}
+resultsBLAST.strict.unique2_top20.cross.result2<- fread("../roo_analysis/resultsBLAST.strict.unique2_top20.cross.result2.gff")
+colnames(resultsBLAST.strict.unique2_top20.cross.result2) <- c("transcript_trinity","tissue","strain","pos","coordTE","matches","nmatches","roo","nroo","gene","ngene","intergenic","nintergenic","firstGene")
+resultsBLAST.strict.unique2_top20.cross.result2 <- merge(resultsBLAST.strict.unique2_top20.cross.result2, unique(chimerics[,c("tissue","strain","transcript_trinity","roo_type","transcript_stringtie","gene","coordTE","id","transcript")]),by=c("transcript_trinity","tissue","strain","coordTE"))
+#resultsBLAST.strict.unique2_top20.cross.result2 <- resultsBLAST.strict.unique2_top20.cross.result2[resultsBLAST.strict.unique2_top20.cross.result2$type=="Repeat",]
+#unique(resultsBLAST.strict.unique2_top20.cross.result2$roo_type)
+length(unique(resultsBLAST.strict.unique2_top20.cross.result2[resultsBLAST.strict.unique2_top20.cross.result2$nintergenic<=5,]$id))
+length(unique(resultsBLAST.strict.unique2_top20.cross.result2[resultsBLAST.strict.unique2_top20.cross.result2$nroo<=5,]$id))
+
+length(unique(resultsBLAST.strict.unique2_top20.cross.result2[resultsBLAST.strict.unique2_top20.cross.result2$nintergenic==2,]$id))
+length(unique(resultsBLAST.strict.unique2_top20.cross.result2[resultsBLAST.strict.unique2_top20.cross.result2$nroo==2,]$id))
+
+length(unique(resultsBLAST.strict.unique2_top20.cross.result2[resultsBLAST.strict.unique2_top20.cross.result2$nroo>=1,]$id))
+length(unique(resultsBLAST.strict.unique2_top20.cross.result2[resultsBLAST.strict.unique2_top20.cross.result2$nintergenic>=1,]$id))
+
+#write.table(resultsBLAST.strict.unique2_top20.cross.result2[,c("transcript","gene.y", "tissue","strain","nmatches","nroo","ngene","nintergenic")],"resultsBLAST.strict.unique2_top20.cross.result2.parsed.tab", quote = F, sep = "\t", col.names = T, row.names = F)
+
+write.table(resultsBLAST.strict.unique2_top20.cross.result2[,c("transcript","gene.y", "tissue","strain","nmatches","nroo","ngene","nintergenic")],"1DescriptiveAnalysis/Table_S5F.tab", quote = F, sep = "\t", col.names = T, row.names = F)
+```
+
+```{r}
+resultsRoo_fimo <- fread("../roo_analysis/motifs/results.fimo.sort.unique.tab",fill=TRUE)
+colnames(resultsRoo_fimo) <- c("tissue", "strain", "transcript_trinity", "motif", "score", "q-value","sequence")
+
+subset_chim <- unique(chimerics[,c("tissue", "strain","transcript","transcript_trinity", "transcript_stringtie","gene","roo_type","id","TE_consensus")])
+subset_chim <- subset_chim[subset_chim$roo_type=="repeat",]  
+length(unique(subset_chim$id))
+resultsRoo_fimo <- resultsRoo_fimo[resultsRoo_fimo$`q-value` < 0.05,]
+resultsRoo_fimo<-merge(resultsRoo_fimo,subset_chim,by=c("tissue", "strain", "transcript_trinity"))
+
+length(unique(resultsRoo_fimo[resultsRoo_fimo$roo_type=="repeat",]$id))
+
+motif_class <- fread("../roo_analysis/motifs/motif_class.lst")
+motif_class <- fread("../roo_analysis/motifs/motifsJASPARtable.tab")
+motif_class <- motif_class[,c("ID","Class")]
+colnames(motif_class) <- c("motif","class")
+
+resultsRoo_fimo_repeats_nMotif<-resultsRoo_fimo%>%group_by(tissue,strain,id,transcript,gene,motif) %>% summarise(nmotif=n())
+
+resultsRoo_fimo_repeats_nMotif2<-merge(resultsRoo_fimo_repeats_nMotif, motif_class, by="motif")
+
+
+
+resultsRoo_fimo_repeats_nMotif2 
+resultsRoo_fimo_repeats_nMotif_reshape<-reshape(as.data.frame(resultsRoo_fimo_repeats_nMotif2), idvar = c("tissue","strain","transcript","id","transcript","gene"), timevar = "motif", direction = "wide")
+
+resultsRoo_fimo_repeats_nMotif3 <- resultsRoo_fimo_repeats_nMotif2%>%group_by(tissue,strain,id,transcript,gene,motif) %>% mutate(count = sum(nmotif[class=="C2H2 zinc finger factors"]))
+
+resultsRoo_fimo_repeats_nMotif3$motifF <- paste0(resultsRoo_fimo_repeats_nMotif3$motif, " (", resultsRoo_fimo_repeats_nMotif3$class, ")")
+resultsRoo_fimo_repeats_nMotif3$motif<-NULL
+resultsRoo_fimo_repeats_nMotif3$class <- NULL
+
+resultsRoo_fimo_repeats_nMotif3_reshape<-reshape(as.data.frame(resultsRoo_fimo_repeats_nMotif3), idvar = c("tissue","strain","transcript","id","transcript","gene", "count"), timevar = "motifF", direction = "wide")
+
+length(unique(resultsRoo_fimo_repeats_nMotif3_reshape[resultsRoo_fimo_repeats_nMotif3_reshape$count>=1,]$id))
+
+length(unique(resultsRoo_fimo_repeats_nMotif3_reshape[resultsRoo_fimo_repeats_nMotif3_reshape$count>=3,]$id))
+
+
+resultsRoo_fimo_repeats_nMotif3_reshape$id<-NULL
+write.table(resultsRoo_fimo_repeats_nMotif3_reshape,file="../roo_analysis/resultsRoo_fimo_repeats_nMotif_reshape3.tab", col.names = T,
+            sep = "\t", row.names = F, quote = F)
+write.table(resultsRoo_fimo_repeats_nMotif3_reshape,file="1DescriptiveAnalysis/Table_S5G.tab", col.names = T,
+            sep = "\t", row.names = F, quote = F)
+write.table(resultsRoo_fimo_repeats_nMotif_reshape,file="../roo_analysis/resultsRoo_fimo_repeats_nMotif_reshape.tab", col.names = T,
+            sep = "\t", row.names = F, quote = F)
+
+
+```
+
+Analysis of the motifs on new transcripts.
+
+```{r motifs-transcripts}
+results_fimo <- fread("../motif_scan/results.fimo.sort.unique.tab")
+colnames(results_fimo) <- c("tissue", "strain", "transcript_trinity", "TE_consensus", "TE_family","type","gene","transcript","motif", "score", "q-value","sequence")
+
+subset_chim <- unique(chimerics[,c("tissue", "strain","transcript","transcript_trinity", "transcript_stringtie","gene","id","TE_consensus")])
+results_fimo <- results_fimo[results_fimo$`q-value` < 0.05,]
+results_fimo<-merge(results_fimo,subset_chim,by=c("tissue", "strain", "transcript_trinity","TE_consensus","gene","transcript"))
+motif_class <- fread("../roo_analysis/motifs/motifsJASPARtable.tab")
+motif_class <- motif_class[,c("ID","Class")]
+colnames(motif_class) <- c("motif","class")
+
+results_fimo_bp_sp<-results_fimo[results_fimo$type=="Body-part specific TE"]
+results_fimo_bp_sp<-merge(results_fimo_bp_sp,motif_class,by="motif")
+results_fimo_bp_sp[results_fimo_bp_sp$class=="",]$class <- NA
+listInput <- list(Head = unique(results_fimo_bp_sp[results_fimo_bp_sp$tissue=="head",]$class), 
+                  Gut = unique(results_fimo_bp_sp[results_fimo_bp_sp$tissue=="gut",]$class),
+                  Ovary = unique(results_fimo_bp_sp[results_fimo_bp_sp$tissue=="ovary",]$class))
+ upset(fromList(listInput))
+
+ results_fimo_bp_sp$tissue <- factor(results_fimo_bp_sp$tissue,levels=c("head","gut","ovary"),labels = c("Head","Gut","Ovary")) 
+plot_fimo_bp_sp<-ggplot(na.omit(unique(results_fimo_bp_sp[,c("tissue","class")])),aes(x=tissue,y=class)) + geom_tile() + theme_light(base_size = 18)  +  theme(plot.title = element_text(face = "bold")) +
+    theme(plot.title = element_text(hjust = 0.5)) + labs(fill="TE family")  + 
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=18), plot.title = element_text(size = 18)) +
+    theme(legend.position = "none",   panel.grid.minor = element_blank(),
+          axis.text = element_text(  color="black")) + labs(x="",y="")
+
+ 
+ results_fimo_roo_solo_ltr<-results_fimo[results_fimo$type=="Roo solo LTR"]
+results_fimo_roo_solo_ltr<-merge(results_fimo_roo_solo_ltr,motif_class,by="motif")
+results_fimo_roo_solo_ltr[results_fimo_roo_solo_ltr$class=="",]$class <- NA
+listInput <- list(Head = unique(results_fimo_roo_solo_ltr[results_fimo_roo_solo_ltr$tissue=="head",]$class), 
+                  Gut = unique(results_fimo_roo_solo_ltr[results_fimo_roo_solo_ltr$tissue=="gut",]$class),
+                  Ovary = unique(results_fimo_roo_solo_ltr[results_fimo_roo_solo_ltr$tissue=="ovary",]$class))
+ upset(fromList(listInput))
+ 
+
+   results_fimo_roo_solo_ltr$tissue <- factor(results_fimo_roo_solo_ltr$tissue,levels=c("head","gut","ovary"),labels = c("Head","Gut","Ovary")) 
+
+   plot_fimo_roo_solo_ltr<-ggplot(unique(results_fimo_roo_solo_ltr[,c("tissue","class")]),aes(x=tissue,y=class)) + geom_tile() + theme_light(base_size = 18)  +  theme(plot.title = element_text(face = "bold")) +
+    theme(plot.title = element_text(hjust = 0.5)) + labs(fill="TE family")  + 
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=18), plot.title = element_text(size = 18)) +
+    theme(legend.position = "none",   panel.grid.minor = element_blank(),
+          axis.text = element_text(  color="black")) + labs(x="",y="")
+
+ 
+ 
+   results_fimo_ine<-results_fimo[results_fimo$type=="INE-1"]
+results_fimo_ine<-merge(results_fimo_ine,motif_class,by="motif")
+results_fimo_ine[results_fimo_ine$class=="",]$class <- NA
+listInput <- list(Head = unique(results_fimo_ine[results_fimo_ine$tissue=="head",]$class), 
+                  Gut = unique(results_fimo_ine[results_fimo_ine$tissue=="gut",]$class),
+                  Ovary = unique(results_fimo_ine[results_fimo_ine$tissue=="ovary",]$class))
+ upset(fromList(listInput))
+
+ 
+   results_fimo_ine$tissue <- factor(results_fimo_ine$tissue,levels=c("head","gut","ovary"),labels = c("Head","Gut","Ovary")) 
+
+    plot_fimo_ine<-ggplot(na.omit(unique(results_fimo_ine[,c("tissue","class")])),aes(x=tissue,y=class)) + geom_tile() + theme_light(base_size = 18)  +  theme(plot.title = element_text(face = "bold")) +
+    theme(plot.title = element_text(hjust = 0.5)) + labs(fill="TE family")  + 
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=18), plot.title = element_text(size = 18)) +
+    theme(legend.position = "none",   panel.grid.minor = element_blank(),
+          axis.text = element_text(  color="black")) + labs(x="",y="")
+
+fig_s4<- plot_grid(plot_fimo_roo_solo_ltr,plot_fimo_ine,plot_fimo_bp_sp, ncol = 1,labels="AUTO", align = "hv", rel_heights = c(0.5,1.3,1),label_size = 18)
+
+ggsave(fig_s4,file="Figure_S4.pdf", width = 7.8, height = 8)
+
+```
+
+# 5. Expression analysis
+
+```{r read-expr-data}
+
+expression_data <- fread("expression_contribution/all_transcripts_expr_1TPM.tab")
+
+colnames(expression_data) <- c("tissue", "strain", "transcript_trinity", "transcript_stringtie", "gene", "transcript", "expr", "type", "roo_type", "group")
+
+# fix roo_type
+chimerics_roo_type <- unique(chimerics[,c("tissue", "strain", "transcript_trinity", "transcript_stringtie", "gene", "transcript", "roo_type", "TE_family"),])
+chimerics_roo_type <- chimerics_roo_type[chimerics_roo_type$TE_family=="roo",]
+chimerics_roo_type$TE_family<-NULL
+chimerics_roo_type<-chimerics_roo_type %>% group_by(tissue, strain, transcript_trinity, transcript_stringtie, gene, transcript) %>%  summarize(roo_type_f = str_c(roo_type, collapse = ","))
+chimerics_roo_type$type <- "chimeric"
+
+expression_data_df<-merge(expression_data, chimerics_roo_type, by=c("tissue", "strain", "transcript_trinity", "transcript_stringtie", "gene", "transcript", "type"), all.x=T)
+expression_data_df$roo_type <- NULL
+expression_data_df<-rename(expression_data_df, c("roo_type"="roo_type_f"))
+
+chimerics_id <- unique(chimerics[,c("tissue", "strain", "transcript_trinity", "transcript_stringtie", "gene", "transcript", "id"),])
+chimerics_id$type <- "chimeric"
+
+expression_data_df<-merge(expression_data, chimerics_id, by=c("tissue", "strain", "transcript_trinity", "transcript_stringtie", "gene", "transcript","type"), all.x=T)
+
+chimerics_pos <- unique(chimerics[,c("tissue", "strain", "transcript_trinity", "transcript_stringtie", "gene", "transcript", "id", "exon"),]) %>% group_by(tissue, strain, transcript_trinity, transcript_stringtie, gene, transcript, id) %>%  summarize(exon_pos = str_c(exon, collapse = ","))
+chimerics_pos$type<-"chimeric"
+
+expression_data_df <- merge(expression_data_df, chimerics_pos, by= c("tissue", "strain", "transcript_trinity", "transcript_stringtie", "gene", "transcript", "id", "type"),all.x=TRUE)
+
+```
+
+```{r figure-5a}
+
+non_chimerics_expression <- expression_data_df %>% filter(type == "non-chimeric") %>% select(tissue, strain, transcript_stringtie, expr) %>% unique() 
+non_chimerics_expression$type <- "Non-chimeric transcripts"
+non_chimerics_expression<-rename(non_chimerics_expression, c("id"="transcript_stringtie"))
+
+chimerics_expression <- expression_data_df %>% filter(type == "chimeric") %>% select(tissue, strain, id, expr) %>% unique() 
+chimerics_expression$type <- "Chimeric transcripts"
+
+chimerics_expression_no_roo <- expression_data_df %>% filter((type == "chimeric" & roo_type != "repeat") %>% replace_na(TRUE)) %>% select(tissue, strain, id, expr) %>% unique()  
+chimerics_expression_no_roo$type <- "Chimeric transcripts (without roo)"
+
+chimerics_expression_g1 <- expression_data_df %>% filter(group==1) %>% select(tissue, strain, id, expr) %>% unique()  
+chimerics_expression_g1$type <- "Overlap and AS insertions"
+
+chimerics_expression_g2 <- expression_data_df %>% filter(group==2) %>% select(tissue, strain, id, expr) %>% unique()  
+chimerics_expression_g2$type <- "Internal insertions"
+
+chimerics_expression_5UTR <- expression_data_df %>% filter(exon_pos=="First exon") %>% select(tissue, strain, id, expr) %>% unique()
+chimerics_expression_5UTR$type <- "5'UTR"
+
+chimerics_expression_3UTR <- expression_data_df %>% filter(exon_pos=="Last exon") %>% select(tissue, strain, id, expr) %>% unique()  
+chimerics_expression_3UTR$type <- "3'UTR"
+
+chimerics_expression_middle <- expression_data_df %>% filter(exon_pos=="Middle exon") %>% select(tissue, strain, id, expr) %>% unique()  
+chimerics_expression_middle$type <- "Internal exons"
+
+chimerics_expression_unique <- expression_data_df %>% filter(exon_pos=="Unique") %>% select(tissue, strain, id, expr) %>% unique()  
+chimerics_expression_unique$type <- "Unique"
+
+fig5a_df <- rbind(non_chimerics_expression, chimerics_expression, chimerics_expression_no_roo, chimerics_expression_g1, chimerics_expression_g2, chimerics_expression_5UTR, chimerics_expression_3UTR, chimerics_expression_middle, chimerics_expression_unique)
+
+fig5a_df$type <- factor(fig5a_df$type, levels=rev(c("Non-chimeric transcripts", "Chimeric transcripts", "Chimeric transcripts (without roo)", "Overlap and AS insertions", "Internal insertions", "5'UTR", "Internal exons", "3'UTR", "Unique")))
+
+fig5a<-ggplot(fig5a_df, aes(x=type, y = log2(expr))) + geom_boxplot(fill=c("cadetblue2", "cadetblue2","cadetblue2","cadetblue2","#FF6A6A", "#FF6A6A","firebrick3",  "firebrick3", "gray80")) + theme_Publication() + labs(y=expression(log[2](TPM)),x="")  + coord_flip() +  theme(panel.border = element_blank(), panel.grid.major = element_blank(),  panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))   + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16))
+fig5a
+```
+
+```{r tests}
+length(unique(non_chimerics_expression$id))
+length(unique(chimerics_expression$id))
+length(unique(expression_data_df[expression_data_df$type=="chimeric",]$id))
+length(unique(expression_data_df[expression_data_df$type=="chimeric",]$gene))
+length(unique(expression_data_df[expression_data_df$type=="non-chimeric",]$transcript_stringtie))
+length(unique(expression_data_df[expression_data_df$roo_type=="repeat",]$id))
+
+wilcox.test(non_chimerics_expression$expr, chimerics_expression$expr)
+
+wilcox.test(non_chimerics_expression$expr, chimerics_expression_no_roo$expr )
+
+wilcox.test(non_chimerics_expression$expr, chimerics_expression_g1$expr )
+
+wilcox.test(non_chimerics_expression$expr, chimerics_expression_g2$expr )
+
+```
+
+
+```{r table-s6a}
+gene_types_expr <- expression_data_df %>%
+    group_by(tissue, strain,  gene)  %>% summarize(gene_status= paste0(sort(unique(type)), collapse = ";")) %>% mutate(gene_type = case_when(gene_status == "chimeric;non-chimeric"  ~ "Variable", gene_status == "chimeric"  ~ "Always chimeric", gene_status == "non-chimeric"  ~ "Non-chimeric")) %>% select(tissue, strain, gene, gene_type) %>% unique()
+
+expression_data_df<-merge(expression_data_df ,gene_types_expr, by=c("tissue","strain","gene"))
+
+expression_data_df$transcript_id <- ifelse(expression_data_df$type=="chimeric", paste(expression_data_df$transcript_stringtie,expression_data_df$id,sep="-"), expression_data_df$transcript_stringtie)
+
+expression_data_df$gene_type <- factor(expression_data_df$gene_type, levels=c("Non-chimeric", "Variable","Always chimeric"))
+
+expression_data_df$type <- factor(expression_data_df$type, levels=c("non-chimeric", "chimeric"))
+
+
+results_s6a <- data.frame()
+results_s6a_test <- data.frame()
+
+params <- expand.grid(tissues, strains) 
+
+for (i in seq_len(nrow(params))) {
+  freq <- params$Var1[i]
+  pos <- params$Var2[i]
+  
+  tissueID <- params$Var1[i]
+  strainID <- params$Var2[i]
+  
+  result <- expression_data_df %>% filter(tissue==tissueID, strain==strainID) %>% group_by(gene_type,type) %>% summarize(tissue=tissueID, strain=strainID, nTranscripts=length(unique(transcript_id)), nGenes=length(unique(gene)), meanExpr=mean(expr), medianExpr=median(expr))
+  results_s6a <- rbind(results_s6a,result)
+  
+  pval <- wilcox.test(expression_data_df %>% filter(tissue==tissueID, strain==strainID) %>% filter(type=="chimeric") %>% select(transcript_id, expr) %>% unique() %>% pull(expr),
+              expression_data_df %>% filter(tissue==tissueID, strain==strainID) %>% filter(type=="non-chimeric") %>% select(transcript_id, expr) %>% unique() %>% pull(expr))$p.value
+  
+ mean_chimeric <- expression_data_df %>% filter(tissue==tissueID, strain==strainID) %>% filter(type=="chimeric") %>% select(transcript_id, expr) %>% unique() %>% pull(expr) %>% mean()
+  mean_no_chimeric <- expression_data_df %>% filter(tissue==tissueID, strain==strainID) %>% filter(type=="non-chimeric") %>% select(transcript_id, expr) %>% unique() %>% pull(expr) %>% mean()
+  
+  result_test <- data.frame(tissue=tissueID, strain=strainID, mean_chimeric=mean_chimeric,mean_no_chimeric=mean_no_chimeric, pval=pval)
+  results_s6a_test <- rbind(results_s6a_test,result_test)
+}
+
+write.table(results_s6a, file="1DescriptiveAnalysis/Table_S6A.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+write.table(results_s6a_test, file="1DescriptiveAnalysis/Table_S6A_test.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+
+
+```
+Analysis considering the position
+
+```{r test-positions}
+wilcox.test(non_chimerics_expression$expr, chimerics_expression_5UTR$expr )
+
+wilcox.test(non_chimerics_expression$expr, chimerics_expression_3UTR$expr )
+
+wilcox.test(non_chimerics_expression$expr, chimerics_expression_middle$expr )
+
+wilcox.test(chimerics_expression_5UTR$expr, chimerics_expression_3UTR$expr )
+
+wilcox.test(chimerics_expression_middle$expr, chimerics_expression_3UTR$expr )
+
+```
+
+Contribution of the expression
+
+```{r contribution}
+
+#write.table(data.frame(unique(expression_data_df[expression_data_df$type=="chimeric",]$gene)), "expression_contribution/list_chimerics_genes_1TPM.tab", col.names = F, row.names = F, sep = "\t", quote = F)
+
+expressionContribution <- fread("expression_contribution/contribution.tab", header = F, sep = "\t")
+expressionContribution <- expressionContribution[,c("V1","V4")]
+colnames(expressionContribution) <- c("gene", "contribution")
+
+expressionContribution <- expressionContribution[expressionContribution$gene %in% unique(expression_data_df[expression_data_df$type=="chimeric",]$gene) ,]
+
+# Mean and median by gene
+averageGeneExpressionContribution<- expressionContribution %>%
+  group_by(gene) %>%
+  dplyr::summarize(Mean = mean(contribution, na.rm=TRUE), Median=median(contribution,na.rm=TRUE))
+
+expressionContribution$type <- ""
+expressionContribution$type <- ifelse(expressionContribution$gene %in% averageGeneExpressionContribution[averageGeneExpressionContribution$Mean==100,]$gene,"Always","Variable")
+
+# Genes that only express the chimeric when detected expression
+length(unique(averageGeneExpressionContribution[averageGeneExpressionContribution$Mean==100,]$gene))
+
+314/819
+
+expressionContribution <- fread("expression_contribution/contribution.tab", header = F, sep = "\t")
+colnames(expressionContribution) <- c("gene", "strain", "tissue", "contribution")
+
+chimeric_genes_group_TE <- unique(chimerics[,c("gene","strain","tissue","TE_length_total","group","roo_type")])
+chimeric_genes_group_TE$length_type <- ""
+chimeric_genes_group_TE$length_type <- ifelse(chimeric_genes_group_TE$TE_length_total >= 120, "long", "short")
+chimeric_genes_group_TE$TE_length_total<-NULL
+chimeric_genes_group_TE<-unique(chimeric_genes_group_TE)
+chimeric_genes_group_TE$strain <- NULL
+chimeric_genes_group_TE$tissue<-NULL
+chimeric_genes_group_TE <- chimeric_genes_group_TE %>% group_by(gene) %>% mutate(group=paste(unique(group),collapse=';'),length_type=paste(unique(length_type),collapse=';'),roo_type=paste(unique(roo_type),collapse=";")) %>% unique()
+#chimeric_genes_group_TE$roo_type<-NULL
+chimeric_genes_group_TE <- unique(chimeric_genes_group_TE)
+
+expressionContribution_info <- merge(expressionContribution, chimeric_genes_group_TE,by=c("gene"),all.x=T)
+
+averageGeneExpressionContribution_info <- merge(averageGeneExpressionContribution, chimeric_genes_group_TE,by=c("gene"),all.x=T)
+
+averageGeneExpressionContribution_info$type <- ifelse(averageGeneExpressionContribution_info$gene %in% averageGeneExpressionContribution_info[averageGeneExpressionContribution_info$Mean==100,]$gene,"Always","Variable")
+averageGeneExpressionContribution_info <- as.data.table(averageGeneExpressionContribution_info)
+
+expressionContribution_info$type <- ""
+expressionContribution_info$type <- ifelse(expressionContribution_info$gene %in% averageGeneExpressionContribution_info[averageGeneExpressionContribution_info$type=="Always",]$gene,"Always","Variable")
+
+# version that takes into account strain and tissue
+#chimeric_genes_group_TE <- unique(chimerics[,c("gene","strain","tissue","TE_length_total","group","roo_type")])
+#chimeric_genes_group_TE$length_type <- ""
+#chimeric_genes_group_TE$length_type <- ifelse(chimeric_genes_group_TE$TE_length_total >= 120, "long", "short")
+#chimeric_genes_group_TE$TE_length_total<-NULL
+#chimeric_genes_group_TE<-unique(chimeric_genes_group_TE)
+#chimeric_genes_group_TE <- chimeric_genes_group_TE %>% group_by(gene,strain,tissue) %>% mutate(group=paste(unique(group),collapse=';'),length_type=paste(unique(length_type),collapse=';'),roo_type=paste(unique(roo_type),collapse=";")) %>% unique()
+
+#expressionContribution_info <- merge(expressionContribution, chimeric_genes_group_TE,by=c("gene","strain","tissue"),all.x=T)
+#
+
+
+table(averageGeneExpressionContribution_info[averageGeneExpressionContribution_info$type=="Always",]$group)
+208/314
+table(averageGeneExpressionContribution_info[averageGeneExpressionContribution_info$type=="Always",]$length_type)
+238/314
+
+# variables
+
+min(na.omit(averageGeneExpressionContribution_info[averageGeneExpressionContribution_info$type=="Variable",]$Mean))
+
+max(na.omit(averageGeneExpressionContribution_info[averageGeneExpressionContribution_info$type=="Variable",]$Mean))
+
+#26.98
+mean(na.omit(expressionContribution_info[expressionContribution_info$type=="Variable",]$contribution))
+
+mean(na.omit(expressionContribution_info[expressionContribution_info$type=="Variable"&expressionContribution_info$group==1,]$contribution))
+mean(na.omit(expressionContribution_info[expressionContribution_info$type=="Variable"&expressionContribution_info$group==2,]$contribution))
+
+wilcox.test(na.omit(expressionContribution_info[expressionContribution_info$type=="Variable"&expressionContribution_info$group==1,]$contribution),na.omit(expressionContribution_info[expressionContribution_info$type=="Variable"&expressionContribution_info$group==2,]$contribution))
+
+mean(na.omit(expressionContribution_info[expressionContribution_info$type=="Variable"&expressionContribution_info$group==1 & ( expressionContribution_info$length_type=="long" | expressionContribution_info$length_type=="long;short" | expressionContribution_info$length_type=="short;long"),]$contribution))
+mean(na.omit(expressionContribution_info[expressionContribution_info$type=="Variable"&expressionContribution_info$group==2 & ( expressionContribution_info$length_type=="long" | expressionContribution_info$length_type=="long;short" | expressionContribution_info$length_type=="short;long"),]$contribution))
+
+wilcox.test(na.omit(expressionContribution_info[expressionContribution_info$type=="Variable"&expressionContribution_info$group==1 & ( expressionContribution_info$length_type=="long" | expressionContribution_info$length_type=="long;short" | expressionContribution_info$length_type=="short;long"),]$contribution),na.omit(expressionContribution_info[expressionContribution_info$type=="Variable"&expressionContribution_info$group==2 & ( expressionContribution_info$length_type=="long" | expressionContribution_info$length_type=="long;short" | expressionContribution_info$length_type=="short;long"),]$contribution))
+
+mean(na.omit(expressionContribution_info[expressionContribution_info$type=="Variable"&expressionContribution_info$group==2 & expressionContribution_info$roo!="repeat",]$contribution))
+
+```
+
+```{r figure-5b}
+expressionContribution_info_fig <- averageGeneExpressionContribution_info
+
+expressionContribution_info_fig[expressionContribution_info_fig$group==2,]$group <- "Group 2"
+expressionContribution_info_fig[expressionContribution_info_fig$group==1,]$group <- "Group 1"
+expressionContribution_info_fig[expressionContribution_info_fig$group=="1;2" | expressionContribution_info_fig$group=="2;1",]$group <- "Both groups"
+ 
+expressionContribution_info_fig$color<-""
+expressionContribution_info_fig[expressionContribution_info_fig$group=="Both groups" & expressionContribution_info_fig$Mean < 100, ]$color<-"#00A3D9"
+expressionContribution_info_fig[expressionContribution_info_fig$group=="Group 2" & expressionContribution_info_fig$Mean < 100, ]$color<-"#0086B3"
+expressionContribution_info_fig[expressionContribution_info_fig$group=="Group 1" & expressionContribution_info_fig$Mean < 100, ]$color<-"#00394D"
+expressionContribution_info_fig[expressionContribution_info_fig$group=="Both groups" & expressionContribution_info_fig$Mean == 100, ]$color<-"#FFA500"
+expressionContribution_info_fig[expressionContribution_info_fig$group=="Group 2" & expressionContribution_info_fig$Mean == 100, ]$color<-"#805300"
+expressionContribution_info_fig[expressionContribution_info_fig$group=="Group 1" & expressionContribution_info_fig$Mean == 100, ]$color<-"#402900"
+
+
+expressionContribution_info_fig$group<-factor(expressionContribution_info_fig$group, levels=c("Group 1", "Group 2", "Both groups"))
+expressionContribution_info_fig$color<-factor(expressionContribution_info_fig$color)
+
+expressionContribution_info_fig$type2<-""
+expressionContribution_info_fig[expressionContribution_info_fig$group=="Both groups" & expressionContribution_info_fig$Mean < 100, ]$type2<-"Both groups (variable)"
+expressionContribution_info_fig[expressionContribution_info_fig$group=="Group 2" & expressionContribution_info_fig$Mean < 100, ]$type2<-"Group 2 "
+expressionContribution_info_fig[expressionContribution_info_fig$group=="Group 1" & expressionContribution_info_fig$Mean < 100, ]$type2<-"Group 1 "
+expressionContribution_info_fig[expressionContribution_info_fig$group=="Both groups" & expressionContribution_info_fig$Mean == 100, ]$type2<-"Both groups (always chimeric)"
+expressionContribution_info_fig[expressionContribution_info_fig$group=="Group 2" & expressionContribution_info_fig$Mean == 100, ]$type2<-"Group 2"
+expressionContribution_info_fig[expressionContribution_info_fig$group=="Group 1" & expressionContribution_info_fig$Mean == 100, ]$type2<-"Group 1"
+expressionContribution_info_fig$type2<-factor(expressionContribution_info_fig$type2)
+
+
+
+plotB<-ggplot(expressionContribution_info_fig,aes(x=Mean,fill=color)) + geom_histogram( boundary = 0, closed = "left") + theme_Publication() + scale_fill_identity(guide = 'legend', labels = c("Overlap & AS insertions", "Overlap & AS insertions", "Internal insertions", "Internal insertions", "Both groups (variable)", "Both groups (always chimeric)"), breaks = c("#00394D","#402900","#0086B3","#805300","#00A3D9","#FFA500"))    + geom_vline(xintercept=mean(na.omit(expressionContribution_info[expressionContribution_info$type=="Variable",]$contribution)), linetype = "longdash") +  scale_y_continuous( expand = c(0, 0), breaks = breaks_pretty(n = 5)) +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black")) + labs(x="Mean chimeric gene-TE transcript expression contribution", y = "Number of chimeric genes", fill="Type") + geom_text(aes(x=mean(na.omit(expressionContribution_info[expressionContribution_info$type=="Variable",]$contribution)),  y=200), label=paste0("\nMean = ",round(mean(na.omit(expressionContribution_info[expressionContribution_info$type=="Variable",]$contribution)),1),"%"), angle=90, check_overlap = TRUE)   + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16)) 
+plotB
+
+plot_grid(fig5a, plotB, align = "h", axis = "t", nrow=2,labels = c('A', 'B'), label_size = 18, rel_heights =  c(1.5,3))
+
+ggsave(plot_grid(fig5a, plotB, align = "h", axis = "t", nrow=2,labels = c('A', 'B'), label_size = 18, rel_heights =  c(1.5,3)),file="FIGURES/Figure5.png", width = 7.8, height = 8)
+
+ggsave(plot_grid(fig5a, plotB, align = "h", axis = "t", nrow=2,labels = c('A', 'B'), label_size = 18, rel_heights =  c(1.5,3))
+       ,file="FIGURES/Figure5.pdf", width = 7.8, height = 8)
+
+ggsave(plot_grid(fig5a, plotB, align = "h", axis = "t", nrow=2,labels = c('A', 'B'), label_size = 18, rel_heights =  c(1.5,3))
+       ,file="FIGURES/Figure5.svg", width = 7.8, height = 8)
+
+plot_grid(fig5a, cowplot::ggdraw() + cowplot::draw_image("C.png", scale = 0.9), plotB, cowplot::ggdraw() + cowplot::draw_image("D.png", scale = 0.9), align = "h", axis = "t", nrow=2,labels = c('A', 'C', 'B', 'D'), label_size = 18, rel_heights =  c(2,2.6))
+
+fig5<-plot_grid(fig5a, cowplot::ggdraw() + cowplot::draw_image("C.png", scale = 0.95), plotB, cowplot::ggdraw() + cowplot::draw_image("D.png", scale = 0.95), align = "h", axis = "t", nrow=2,labels = c('A', 'C', 'B', 'D'), label_size = 18, rel_heights =  c(1.5,2.5))
+
+ggsave(fig5,,file="Figure5.pdf", width = 15, height = 8)
+
+ggsave(fig5,file="Figure5.svg", width = 15, height = 8)
+
+```
+
+Analysis of specificity of transcripts
+
+```{r body-part-sp}
+
+# Tissue-specific
+unique_bp <- chimerics %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n==1) %>% select(id,strain,tissue,expr) %>% unique()
+length(unique(unique_bp$id))
+# Expressed in all 3 tissues
+shared_3_bp <- chimerics %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n==3) %>% select(id,strain,tissue,expr) %>% unique()
+length(unique(shared_3_bp$id))
+
+# Shared between 2 tissues
+shared_2_bp <- chimerics %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n==2) %>% select(id,strain,tissue,expr) %>% unique()
+length(unique(shared_2_bp$id))
+
+shared_2_3_bp <- chimerics %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n>1,n<=3) %>% select(id,strain,tissue,expr) %>% unique()
+length(unique(shared_2_3_bp$id))
+
+
+
+wilcox.test(unique_bp$expr,shared_2_3_bp$expr)
+
+
+lengths <- c("All", "≥120")
+strains <- c("All", "AKA-017",  "JUT-011", "MUN-016", "SLA-001", "TOM-007")
+
+# create a data frame with all combinations of types and lengths
+params <- expand.grid(strains, lengths)
+
+# create an empty data frame to store the results
+s6b <- data.frame(strain = character(), avg_bp_sp = character(),
+                          avg_bp_3 = numeric(),
+                          avg_bp_2 = numeric(),
+                          pval = numeric())
+# loop over the parameter combinations
+for (i in seq_len(nrow(params))) {
+  strainID <- params$Var1[i]
+  length <- params$Var2[i]
+  
+  # filter the data based on the type and length
+ 
+    if (strainID != "All") {
+      data <- chimerics %>% filter(strain == strainID)
+    t1 <-  strainID
+  } else {
+    t1 <- "All"
+ data <- chimerics
+    
+  }
+  
+  if (length == "≥120") {
+    data <- data %>% filter(TE_length_total >= 120)
+    t2 <- paste0(t1," - ≥120")
+  } else {
+     data <- data 
+    t2 <- paste0(t1)
+  }
+  
+  # Tissue-specific
+unique_bp <- data %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n==1) %>% select(id,strain,tissue,expr) %>% unique() %>% ungroup() %>% summarise(mean=mean(expr), median=median(expr))
+# Expressed in all 3 tissues
+shared_3_bp <- data %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n==3) %>% select(id,strain,tissue,expr) %>% unique() %>% ungroup() %>% summarise(mean=mean(expr), median=median(expr))
+
+# Shared between 2 tissues
+shared_2_bp <- data %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n==2) %>% select(id,strain,tissue,expr) %>% unique() %>% ungroup() %>% summarise(mean=mean(expr), median=median(expr))
+
+pval <- wilcox.test(data %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n==1) %>% select(id,strain,tissue,expr) %>% unique()  %>% pull(expr),
+    
+    data %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n==3) %>% select(id,strain,tissue,expr) %>% unique()  %>% pull(expr))$p.value
+  
+  result <- data.frame(strain=t2,avg=paste0(round(unique_bp$mean,3), " (",round(unique_bp$median,3),")"),
+                       avg_2=paste0(round(shared_2_bp$mean,3), " (",round(shared_2_bp$median,3),")"),
+                       avg_3=paste0(round(shared_3_bp$mean,3), " (",round(shared_3_bp$median,3),")"),
+                       pval=pval)
+  
+      s6b <- rbind(s6b, result)
+      
+}
+
+write.table(s6b, file="1DescriptiveAnalysis/Table_S6B.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+
+
+s6b
+```
+
+```{r head-specific transcripts}
+
+chimerics %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n==1,tissue=="head") %>% select(id,strain,tissue,expr) %>% unique() %>% ungroup() %>% summarize(median(expr),n=length(unique(id)))
+
+
+chimerics %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n==1,tissue=="gut") %>% select(id,strain,tissue,expr) %>% unique() %>% ungroup() %>% summarize(median(expr),n=length(unique(id)))
+
+wilcox.test(chimerics %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n==1,tissue=="gut") %>% select(id,strain,tissue,expr) %>% unique() %>% pull(expr), chimerics %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n==1,tissue=="head") %>% select(id,strain,tissue,expr) %>% unique() %>% pull(expr))
+
+chimerics %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n==1,tissue=="ovary") %>% select(id,strain,tissue,expr) %>% unique() %>% ungroup() %>% summarize(median(expr),n=length(unique(id)))
+
+
+
+wilcox.test(chimerics %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n==1,tissue=="ovary") %>% select(id,strain,tissue,expr) %>% unique() %>% pull(expr), chimerics %>%
+    group_by(id) %>% mutate(n=length(unique(tissue)))  %>%
+    filter(n==1,tissue=="head") %>% select(id,strain,tissue,expr) %>% unique() %>% pull(expr))
+
+chimerics %>%
+    filter(tissue=="ovary") %>% select(id,strain,tissue,expr) %>% unique() %>% ungroup() %>% summarize(median(expr),n=length(unique(id)))
+
+chimerics %>%
+    filter(tissue=="head") %>% select(id,strain,tissue,expr) %>% unique() %>% ungroup() %>% summarize(median(expr),n=length(unique(id)))
+
+chimerics %>%
+    filter(tissue=="gut") %>% select(id,strain,tissue,expr) %>% unique() %>% ungroup() %>% summarize(median(expr),n=length(unique(id)))
+
+```
+
+```{r table s6c}
+lengths <- c("All", "≥120")
+
+# create a data frame with all combinations of types and lengths
+params <- expand.grid(lengths)
+
+# create an empty data frame to store the results
+s6c <- data.frame(strain = character(), avg_bp_sp = character(),
+                          avg_bp_3 = numeric(),
+                          avg_bp_2 = numeric(),
+                          pval = numeric())
+# loop over the parameter combinations
+for (i in seq_len(nrow(params))) {
+  length <- params$Var1[i]
+  # filter the data based on the type and length
+
+    t1 <- "All"
+
+  
+  if (length == "≥120") {
+    data <- chimerics %>% filter(TE_length_total >= 120)
+    t2 <- paste0(t1," - ≥120")
+  } else {
+     data <- chimerics 
+    t2 <- paste0(t1)
+  }
+  
+  # Tissue-specific
+unique_strain <- data %>%
+    group_by(id) %>% mutate(n=length(unique(strain)))  %>%
+    filter(n==1) %>% select(id,strain,tissue,expr) %>% unique() %>% ungroup() %>% summarise(mean=mean(expr), median=median(expr))
+# Expressed in all 3 tissues
+shared_5_strains <- data %>%
+    group_by(id) %>% mutate(n=length(unique(strain)))  %>%
+    filter(n==5) %>% select(id,strain,tissue,expr) %>% unique() %>% ungroup() %>% summarise(mean=mean(expr), median=median(expr))
+
+# Shared between 2 tissues
+shared_2_4_bp <- data %>%
+    group_by(id) %>% mutate(n=length(unique(strain)))  %>%
+    filter(n>=2, n<=4) %>% select(id,strain,tissue,expr) %>% unique() %>% ungroup() %>% summarise(mean=mean(expr), median=median(expr))
+
+pval <- wilcox.test(data %>%
+    group_by(id) %>% mutate(n=length(unique(strain)))  %>%
+    filter(n==1) %>% select(id,strain,tissue,expr) %>% unique() %>% ungroup()   %>% pull(expr),
+    
+    data %>%
+    group_by(id) %>% mutate(n=length(unique(strain)))  %>%
+    filter(n==5) %>% select(id,strain,tissue,expr) %>% unique() %>% ungroup()   %>% pull(expr))$p.value
+  
+  result <- data.frame(strain=t2,avg=paste0(round(unique_strain$mean,3), " (",round(unique_strain$median,3),")"),
+                       avg_5=paste0(round(shared_5_strains$mean,3), " (",round(shared_5_strains$median,3),")"),
+                       avg_2_4=paste0(round(shared_2_4_bp$mean,3), " (",round(shared_2_4_bp$median,3),")"),
+                       pval=pval)
+  
+      s6c <- rbind(s6c, result)
+      
+}
+
+write.table(s6c, file="1DescriptiveAnalysis/Table_S6C.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+
+s6c
+```
+
+# New: TE status
+
+I have check in each genome the presence of a TE insertion.
+
+```{r}
+
+chimerics_freq<-chimerics %>% 
+    group_by(id) %>%
+    mutate(num_strain = n_distinct(strain)) %>% select(id,num_strain,transcript,transcript_stringtie,transcript_trinity,gene) %>% unique()
+
+chimerics_freq$freq_chimeric <- ifelse(chimerics_freq$num_strain == 1, "Strain-specific", 
+              ifelse(chimerics_freq$num_strain == 5, "Shared across 5 strains", "Shared across 2-4")) 
+
+real_freq <- fread("../TE_status/format_results.clean.ok.tab", colClasses = 'character')
+colnames(real_freq) <- c("id", "transcript", "transcript_stringtie","gene","TE_family", "TE_consensus", "freq_real")
+real_freq<-merge(real_freq, chimerics_freq,by=c("id","transcript","transcript_stringtie","gene"))
+real_freq[real_freq$freq_real=="fixed",]$freq_real <- "Fixed"
+real_freq[real_freq$freq_real=="pol",]$freq_real <- "Polymorphic"
+real_freq[real_freq$freq_real=="unique",]$freq_real <- "Unique"
+
+chimerics_roo <- chimerics   %>% 
+  filter(roo_type=="repeat") %>% select(id,transcript,transcript_stringtie,gene,TE_consensus) %>% unique()
+
+real_freq_no_roo<-anti_join(real_freq, chimerics_roo, by = c("id", "transcript","transcript_stringtie","gene","TE_consensus"))
+
+real_freq_count<-real_freq[,c("freq_chimeric","freq_real")] %>% count(freq_chimeric, freq_real, name = "Freq")
+real_freq_count<-real_freq_no_roo[,c("freq_chimeric","freq_real")] %>% count(freq_chimeric, freq_real, name = "Freq")
+real_freq_count$freq_chimeric <- factor(real_freq_count$freq_chimeric,levels=c("Shared across 5 strains", "Shared across 2-4", "Strain-specific"))    
+library(ggalluvial)
+ggplot(real_freq_count, aes(y=Freq,axis1=freq_chimeric,axis2=freq_real, label = Freq)) + 
+    geom_alluvium(aes(fill=freq_real)) + 
+    geom_stratum(color="white",fill="gray85") +
+    geom_text(stat = "stratum",  aes(label = after_stat(stratum)),size=5) + 
+    theme_minimal(base_size = 18) + scale_x_continuous(
+        breaks       =  1:2,
+        labels       =  c('Chimeric frequency', 'TE insertion frequency')) + scale_fill_viridis_d()  + scale_y_continuous(expand = c(0,0), breaks = scales::pretty_breaks(n = 10))  + scale_color_viridis_d()+
+    theme(legend.position = "none",   panel.grid.minor = element_blank(),
+          axis.text = element_text( face = "bold", color="black"), axis.text.y=element_blank(), panel.grid.major = element_blank()) + labs(y="") 
+
+
+```
+
+For the epigenetic analyses, the new one, we use genes associated to polymorphic TE insertions:
+```{r}
+real_freq_pol<-real_freq %>% filter(freq_real!="Fixed" & freq_chimeric!="Shared across 5 strains")
+real_freq_pol<-merge(unique(chimerics[,c("id", "transcript_trinity", "tissue", "strain")]),real_freq_pol,by=c("id", "transcript_trinity"))
+real_freq_pol_tab<-real_freq_pol[,c("tissue", "strain", "transcript_stringtie", "transcript", "gene", "id", "transcript_trinity","TE_consensus")]
+
+write.table(unique(real_freq_pol_tab),"../epigeneticAnalysis/DATA/listChimericTranscriptsCorrectedKnownStatus.tsv", col.names = F, row.names = F, sep = "\t", quote = F)
+
+```
+
+# 6. Epigenetics
+
+Focus on TEs that are polymorphic.
+
+```{r genes-for-epigenetic-analysis}
+chimerics_pol <- chimerics %>% 
+  group_by(id) %>% mutate(n=length(unique(strain))) %>%
+      filter(n<5)  %>% ungroup()
+length(unique(chimerics_pol$gene))
+
+write.table(unique(chimerics_pol[,c("tissue", "strain", "transcript_stringtie", "transcript", "gene", "id","transcript_trinity")]),"../epigeneticAnalysis/DATA/listChimericTranscriptsCorrected.tsv", col.names = F, row.names = F, sep = "\t", quote = F)
+
+write.table(unique(chimerics_pol[,c("transcript_stringtie", "transcript", "gene", "id")]),"../epigeneticAnalysis/DATA/listChimericTranscriptsCorrectedId.tsv", col.names = F, row.names = F, sep = "\t", quote = F)
+```
+
+
+```{r results-epigenetic-analysis}
+
+chimerics_groups <- unique(chimerics[,c("id", "transcript_stringtie","gene","group")])
+chimerics_groups <- chimerics_groups %>% group_by(id, transcript_stringtie, gene) %>% summarize(group=paste(unique(group),collapse=';'))
+
+epigResults <- fread("../epigeneticAnalysis/statusSamplesAllCorrectedInfoNStatsTranscriptCleanExprEpigChangeRevision.tsv", header = F,  colClasses = 'character')
+#epigResults <- fread("../epigeneticAnalysis/statusSamplesAllCorrectedInfoNStatsTranscriptCleanExprEpigChangeRevision5UTR.tsv", header = F,  colClasses = 'character')
+
+#epigResults <- fread("../epigeneticAnalysis/statusSamplesAllCorrectedInfoNStatsTranscriptCleanExprEpigChangeRevision.tsv", header = F,  colClasses = 'character')
+
+colnames(epigResults) <- c("transcript_stringtie", "id", "gene",  "samples_not_present", "samples_present", "n_peaks_no_TE", "n_peaks_TE", "percentage_no_TE_max", "percentage_TE_max", "n_mark_no_TE_max", "n_mark_TE_max", "epigChange")
+
+epigResults<- merge(epigResults,chimerics_groups,by=c("id", "transcript_stringtie","gene"))
+epigResultsExpr <- fread("../epigeneticAnalysis/statusSamplesAllCorrectedRevision.tsv", header = F,  colClasses = 'character')
+colnames(epigResultsExpr) <- c("transcript_stringtie", "id", "transcript", "gene", "strain", "tissue", "TE_status", "epig_status", "epig_status_5_UTR", "expr")
+
+epigNames <- fread("../epigeneticAnalysis/epigStatus.tsv", header = F)
+colnames(epigNames) <- c("epigChange","change")
+epigResults <- merge(epigResults, epigNames, by = "epigChange")
+epigResults2<-unique(epigResults[,c("id", "gene", "percentage_no_TE_max", "percentage_TE_max", "change", "group")])
+
+epigResultsExprKeep<-merge(epigResultsExpr,epigResults2,by=c("id","gene"))
+
+epigResults2[epigResults2$percentage_no_TE_max<80 | epigResults2$percentage_TE_max<80]
+
+
+epigResults2$percentage_no_TE_max<-as.numeric(epigResults2$percentage_no_TE_max)
+epigResults2$percentage_TE_max<-as.numeric(epigResults2$percentage_TE_max)
+
+discard<-epigResults2[epigResults2$percentage_no_TE_max<80 | epigResults2$percentage_TE_max<80,]
+epigResults2_keep<-epigResults2[epigResults2$percentage_no_TE_max>=80 & epigResults2$percentage_TE_max>=80,]
+length(unique(epigResults2_keep[epigResults2_keep$change=="No marks",]$gene))
+length(unique(epigResults2_keep[epigResults2_keep$change=="Maintain same status",]$gene))
+
+length(unique(epigResults2_keep[epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks",]$gene))
+
+length(unique(epigResults2_keep[epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks" & epigResults2_keep$group==1 | epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks" & epigResults2_keep$group=="1;2"| epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks" & epigResults2_keep$group=="2;1",]$gene))
+length(unique(epigResults2_keep[epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks" & epigResults2_keep$group==2 | epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks" & epigResults2_keep$group=="1;2"| epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks" & epigResults2_keep$group=="2;1",]$gene))
+
+length(unique(epigResults[epigResults$group==1 | epigResults$group=="1;2" | epigResults$group=="2;1",]$gene))
+length(unique(epigResults[epigResults$group==2 | epigResults$group=="1;2" | epigResults$group=="2;1",]$gene))
+
+  
+ epigResults2_keep_change<- unique(epigResults2_keep[epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks",])
+
+epigResultsExprKeep_change <- epigResultsExprKeep[epigResultsExprKeep$change!="Maintain same status" & epigResultsExprKeep$change!="No marks",]
+epigResultsExprKeep_change<-epigResultsExprKeep
+epigResultsExprKeep_change$percentage_no_TE_max<-as.numeric(epigResultsExprKeep_change$percentage_no_TE_max)
+epigResultsExprKeep_change$percentage_TE_max<-as.numeric(epigResultsExprKeep_change$percentage_TE_max)
+epigResultsExprKeep_change<-epigResultsExprKeep_change[epigResultsExprKeep_change$percentage_no_TE_max>=80 & epigResultsExprKeep_change$percentage_TE_max>=80,]
+
+epigResultsExprKeep_change$expr<-as.numeric(epigResultsExprKeep_change$expr)                                   
+
+meanTranscriptsEpi <- epigResultsExprKeep_change %>%
+  select (gene, TE_status, change, expr) %>%
+  group_by(gene,TE_status, change) %>%
+  mutate(avgMean = mean(expr, na.rm = TRUE)) %>%
+  select (TE_status, change, avgMean) %>% distinct() %>%  group_by(gene, change) %>% 
+   mutate(FC = avgMean[TE_status=="present"]/avgMean[TE_status=="notPresent"]) %>% select (change, TE_status, avgMean, FC) %>% distinct()
+
+dfFC <- na.omit(meanTranscriptsEpi) %>% 
+    group_by(change,TE_status) %>% 
+    summarise(FC_low = sum(FC < 1), FC_high = sum(FC > 1), sameFC=sum(FC==1), nGenes=length(unique(gene)), average=mean(avgMean)) %>% reshape2::melt(.)
+
+s7a <- na.omit(meanTranscriptsEpi) %>% 
+    group_by(change,TE_status) %>% 
+    summarise(FC_low = sum(FC < 1), FC_high = sum(FC > 1), sameFC=sum(FC==1), nGenes=length(unique(gene)), average=mean(avgMean))
+write.table(s7a, "1DescriptiveAnalysis/Table_S7A.tab", col.names = T, sep = "\t", row.names = F, quote = F)
+
+t1<-na.omit(meanTranscriptsEpi) %>% 
+    group_by(change,TE_status) %>% 
+    summarise(FC_low = sum(FC < 1), FC_high = sum(FC > 1), sameFC=sum(FC==1), nGenes=length(unique(gene)), average=mean(avgMean))
+write.table(t1, "1DescriptiveAnalysis/Table_1.tab", col.names = T, sep = "\t", row.names = F, quote = F)
+
+# insertions in 5'UTR
+chimerics_first_exon <- chimerics %>% filter(exon=="First exon") %>% select(id, transcript) %>% unique()
+
+
+epigResultsExprKeep_change_first_exon<-epigResultsExprKeep_change[epigResultsExprKeep_change$id %in% chimerics_first_exon$id ]
+
+meanTranscriptsEpi <- epigResultsExprKeep_change_first_exon %>%
+  select (gene, TE_status, change, expr) %>%
+  group_by(gene,TE_status, change) %>%
+  mutate(avgMean = mean(expr, na.rm = TRUE)) %>%
+  select (TE_status, change, avgMean) %>% distinct() %>%  group_by(gene, change) %>% 
+   mutate(FC = avgMean[TE_status=="present"]/avgMean[TE_status=="notPresent"]) %>% select (change, TE_status, avgMean, FC) %>% distinct()
+
+dfFC <- na.omit(meanTranscriptsEpi) %>% 
+    group_by(change,TE_status) %>% 
+    summarise(FC_low = sum(FC < 1), FC_high = sum(FC > 1), sameFC=sum(FC==1), nGenes=length(unique(gene)), average=mean(avgMean)) %>% reshape2::melt(.)
+
+write.table(dfFC, "1DescriptiveAnalysis/Table_S7B.tab", col.names = T, sep = "\t", row.names = F, quote = F)
+
+```
+
+
+```{r results-epigenetic-analysis-known-status}
+
+chimerics_groups <- unique(chimerics[,c( "transcript_stringtie","gene","group")])
+chimerics_groups <- chimerics_groups %>% group_by( transcript_stringtie, gene) %>% summarize(group=paste(unique(group),collapse=';'))
+
+epigResults <- fread("../epigeneticAnalysis/statusSamplesAllCorrectedInfoNStatsTranscriptCleanExprEpigChangeRevisionKnownStatus.tsv", header = F,  colClasses = 'character')
+#epigResults <- fread("../epigeneticAnalysis/statusSamplesAllCorrectedInfoNStatsTranscriptCleanExprEpigChangeRevision.tsv", header = F,  colClasses = 'character')
+
+colnames(epigResults) <- c("transcript_stringtie", "gene",  "samples_not_present", "samples_present", "n_peaks_no_TE", "n_peaks_TE", "percentage_no_TE_max", "percentage_TE_max", "n_mark_no_TE_max", "n_mark_TE_max", "epigChange")
+
+epigResults<- merge(epigResults,chimerics_groups,by=c("transcript_stringtie","gene"))
+epigResultsExpr <- fread("../epigeneticAnalysis/statusSamplesAllCorrectedRevisionKnownStatus.tsv", header = F,  colClasses = 'character')
+colnames(epigResultsExpr) <- c("transcript_stringtie","NA","transcript", "gene", "strain", "tissue", "TE_status", "epig_status", "epig_status_5_UTR", "expr")
+epigResultsExpr$`NA`<-NULL
+epigNames <- fread("../epigeneticAnalysis/epigStatus.tsv", header = F)
+colnames(epigNames) <- c("epigChange","change")
+epigResults <- merge(epigResults, epigNames, by = "epigChange")
+epigResults2<-unique(epigResults[,c("transcript_stringtie","gene", "percentage_no_TE_max", "percentage_TE_max", "change", "group")])
+
+epigResultsExprKeep<-merge(unique(epigResultsExpr),epigResults2,by=c("transcript_stringtie","gene"))
+
+epigResults2[epigResults2$percentage_no_TE_max<80 | epigResults2$percentage_TE_max<80]
+
+
+epigResults2$percentage_no_TE_max<-as.numeric(epigResults2$percentage_no_TE_max)
+epigResults2$percentage_TE_max<-as.numeric(epigResults2$percentage_TE_max)
+
+discard<-epigResults2[epigResults2$percentage_no_TE_max<80 | epigResults2$percentage_TE_max<80,]
+epigResults2_keep<-epigResults2[epigResults2$percentage_no_TE_max>=80 & epigResults2$percentage_TE_max>=80,]
+length(unique(epigResults2_keep[epigResults2_keep$change=="No marks",]$gene))
+length(unique(epigResults2_keep[epigResults2_keep$change=="Maintain same status",]$gene))
+
+length(unique(epigResults2_keep[epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks",]$gene))
+
+length(unique(epigResults2_keep[epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks" & epigResults2_keep$group==1 | epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks" & epigResults2_keep$group=="1;2"| epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks" & epigResults2_keep$group=="2;1",]$gene))
+length(unique(epigResults2_keep[epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks" & epigResults2_keep$group==2 | epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks" & epigResults2_keep$group=="1;2"| epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks" & epigResults2_keep$group=="2;1",]$gene))
+
+ length(unique(epigResults[epigResults$group==1 | epigResults$group=="1;2" | epigResults$group=="2;1",]$gene))
+  length(unique(epigResults[epigResults$group==2 | epigResults$group=="1;2" | epigResults$group=="2;1",]$gene))
+
+  
+ epigResults2_keep_change<- unique(epigResults2_keep[epigResults2_keep$change!="Maintain same status" & epigResults2_keep$change!="No marks",])
+
+epigResultsExprKeep_change <- epigResultsExprKeep[epigResultsExprKeep$change!="Maintain same status" & epigResultsExprKeep$change!="No marks",]
+epigResultsExprKeep_change<-epigResultsExprKeep
+epigResultsExprKeep_change$percentage_no_TE_max<-as.numeric(epigResultsExprKeep_change$percentage_no_TE_max)
+epigResultsExprKeep_change$percentage_TE_max<-as.numeric(epigResultsExprKeep_change$percentage_TE_max)
+epigResultsExprKeep_change<-epigResultsExprKeep_change[epigResultsExprKeep_change$percentage_no_TE_max>=80 & epigResultsExprKeep_change$percentage_TE_max>=80,]
+
+epigResultsExprKeep_change$expr<-as.numeric(epigResultsExprKeep_change$expr)                                   
+
+meanTranscriptsEpi <- epigResultsExprKeep_change %>%
+  select (gene, TE_status, change, expr) %>%
+  group_by(gene,TE_status, change) %>%
+  mutate(avgMean = mean(expr, na.rm = TRUE)) %>%
+  select (TE_status, change, avgMean) %>% distinct() %>%  group_by(gene, change) %>% 
+   mutate(FC = avgMean[TE_status=="present"]/avgMean[TE_status=="notPresent"]) %>% select (change, TE_status, avgMean, FC) %>% distinct()
+meanTranscriptsEpi_known_status<-meanTranscriptsEpi
+
+
+dfFC <- na.omit(meanTranscriptsEpi) %>% 
+    group_by(change,TE_status) %>% 
+    summarise(FC_low = sum(FC < 1), FC_high = sum(FC > 1), sameFC=sum(FC==1), nGenes=length(unique(gene)), average=mean(avgMean)) %>% reshape2::melt(.)
+
+s7b <- na.omit(meanTranscriptsEpi) %>% 
+    group_by(change,TE_status) %>% 
+    summarise(FC_low = sum(FC < 1), FC_high = sum(FC > 1), sameFC=sum(FC==1), nGenes=length(unique(gene)), average=mean(avgMean))
+write.table(s7b, "1DescriptiveAnalysis/Table_S7B.tab", col.names = T, sep = "\t", row.names = F, quote = F)
+
+meanTranscriptsEpi_known_status_common<-merge(meanTranscriptsEpi,meanTranscriptsEpi_known_status)
+
+
+dfFC <- na.omit(meanTranscriptsEpi_known_status_common) %>% 
+    group_by(change,TE_status) %>% 
+    summarise(FC_low = sum(FC < 1), FC_high = sum(FC > 1), sameFC=sum(FC==1), nGenes=length(unique(gene)), average=mean(avgMean)) %>% reshape2::melt(.)
+
+s7c <- na.omit(meanTranscriptsEpi_known_status_common) %>% 
+    group_by(change,TE_status) %>% 
+    summarise(FC_low = sum(FC < 1), FC_high = sum(FC > 1), sameFC=sum(FC==1), nGenes=length(unique(gene)), average=mean(avgMean))
+write.table(s7b, "1DescriptiveAnalysis/Table_S7C.tab", col.names = T, sep = "\t", row.names = F, quote = F)
+```
+
+# 7. GO enrichment
+
+```{r get-genes}
+library(clusterProfiler)
+organism = "org.Dm.eg.db"
+library(organism, character.only = TRUE)
+
+expression_data <- fread("expression_contribution/all_transcripts_expr.tab")
+
+colnames(expression_data) <- c("tissue", "strain", "transcript_trinity", "transcript_stringtie", "gene", "transcript", "expr", "type", "roo_type", "group")
+
+# fix roo_type
+chimerics_roo_type <- unique(chimerics[,c("tissue", "strain", "transcript_trinity", "transcript_stringtie", "gene", "transcript", "roo_type", "TE_family"),])
+chimerics_roo_type <- chimerics_roo_type[chimerics_roo_type$TE_family=="roo",]
+chimerics_roo_type$TE_family<-NULL
+chimerics_roo_type<-chimerics_roo_type %>% group_by(tissue, strain, transcript_trinity, transcript_stringtie, gene, transcript) %>%  summarize(roo_type_f = str_c(roo_type, collapse = ","))
+chimerics_roo_type$type <- "chimeric"
+
+expression_data_df<-merge(expression_data, chimerics_roo_type, by=c("tissue", "strain", "transcript_trinity", "transcript_stringtie", "gene", "transcript", "type"), all.x=T)
+expression_data_df$roo_type <- NULL
+expression_data_df<-rename(expression_data_df, c("roo_type"="roo_type_f"))
+
+chimerics_id <- unique(chimerics[,c("tissue", "strain", "transcript_trinity", "transcript_stringtie", "gene", "transcript", "id"),])
+chimerics_id$type <- "chimeric"
+
+expression_data_df<-merge(expression_data, chimerics_id, by=c("tissue", "strain", "transcript_trinity", "transcript_stringtie", "gene", "transcript","type"), all.x=T)
+
+chimerics_pos <- unique(chimerics[,c("tissue", "strain", "transcript_trinity", "transcript_stringtie", "gene", "transcript", "id", "exon"),]) %>% group_by(tissue, strain, transcript_trinity, transcript_stringtie, gene, transcript, id) %>%  summarize(exon_pos = str_c(exon, collapse = ","))
+chimerics_pos$type<-"chimeric"
+
+expression_data_df <- merge(expression_data_df, chimerics_pos, by= c("tissue", "strain", "transcript_trinity", "transcript_stringtie", "gene", "transcript", "id", "type"),all.x=TRUE)
+
+expression_data_df$transcript_id <- ifelse(expression_data_df$type=="chimeric", paste(expression_data_df$transcript_stringtie,expression_data_df$id,sep="-"), expression_data_df$transcript_stringtie)
+
+list_head <- as.data.frame(unique(expression_data_df[expression_data_df$tissue=="head",]$gene))
+
+list_gut <- as.data.frame(unique(expression_data_df[expression_data_df$tissue=="gut",]$gene))
+
+list_ovary <- as.data.frame(unique(expression_data_df[expression_data_df$tissue=="ovary",]$gene))
+
+list_head_chimerics <- as.data.frame(unique(expression_data_df[expression_data_df$tissue=="head" & expression_data_df$type=="chimeric",]$gene))
+  
+list_gut_chimerics <- as.data.frame(unique(expression_data_df[expression_data_df$tissue=="gut" & expression_data_df$type=="chimeric",]$gene))
+
+list_ovary_chimerics <- as.data.frame(unique(expression_data_df[expression_data_df$tissue=="ovary" & expression_data_df$type=="chimeric",]$gene))
+
+list_head_chimerics_g1 <- as.data.frame(unique(expression_data_df[expression_data_df$tissue=="head" & expression_data_df$type=="chimeric" & expression_data_df$group==1 ,]$gene))
+  
+list_gut_chimerics_g1 <- as.data.frame(unique(expression_data_df[expression_data_df$tissue=="gut" & expression_data_df$type=="chimeric" & expression_data_df$group==1,]$gene))
+
+list_ovary_chimerics_g1 <- as.data.frame(unique(expression_data_df[expression_data_df$tissue=="ovary" & expression_data_df$type=="chimeric" & expression_data_df$group==1,]$gene))
+
+list_head_chimerics_g2 <- as.data.frame(unique(expression_data_df[expression_data_df$tissue=="head" & expression_data_df$type=="chimeric" & expression_data_df$group==2 ,]$gene))
+  
+list_gut_chimerics_g2 <- as.data.frame(unique(expression_data_df[expression_data_df$tissue=="gut" & expression_data_df$type=="chimeric" & expression_data_df$group==2,]$gene))
+
+list_ovary_chimerics_g2 <- as.data.frame(unique(expression_data_df[expression_data_df$tissue=="ovary" & expression_data_df$type=="chimeric" & expression_data_df$group==2,]$gene))
+
+write.table(list_head,"GO/head_list_all.lst", row.names = F, col.names = F, quote = F)
+write.table(list_gut,"GO/gut_list_all.lst", row.names = F, col.names = F, quote = F)
+write.table(list_ovary,"GO/ovary_list_all.lst", row.names = F, col.names = F, quote = F)
+
+write.table(list_head_chimerics,"GO/head_list_chim.lst", row.names = F, col.names = F, quote = F)
+write.table(list_gut_chimerics,"GO/gut_list_chim.lst", row.names = F, col.names = F, quote = F)
+write.table(list_ovary_chimerics,"GO/ovary_list_chim.lst", row.names = F, col.names = F, quote = F)
+
+write.table(list_head_chimerics_g1, "GO/head_list_chim_g1.lst", row.names = F, col.names = F, quote = F)
+write.table(list_gut_chimerics_g1,"GO/gut_list_chim_g1.lst", row.names = F, col.names = F, quote = F)
+write.table(list_ovary_chimerics_g1,"GO/ovary_list_chim_g1.lst", row.names = F, col.names = F, quote = F)
+
+write.table(list_head_chimerics_g2,"GO/head_list_chim_g2.lst", row.names = F, col.names = F, quote = F)
+write.table(list_gut_chimerics_g2,"GO/gut_list_chim_g2.lst", row.names = F, col.names = F, quote = F)
+write.table(list_ovary_chimerics_g2,"GO/ovary_list_chim_g2.lst", row.names = F, col.names = F, quote = F)
+
+```
+
+
+```{r go-using-tissue}
+
+dataGO_BP <- fread("GO/resultParse_all_bp2.tsv")
+dataGO_BP_g1 <- fread("GO/resultParse_g1_bp2.tsv")
+dataGO_BP_g2 <- fread("GO/resultParse_g2_bp2.tsv")
+
+map_color <- c(Development = "#E41A1C", Regulation = "#377EB8", Metabolism = "#4DAF4A", Component = "#984EA3", Stimulus = "#A65628") 
+
+dataGO_BP$enrichmentScore<-as.numeric(as.character(dataGO_BP$enrichmentScore))
+dataGO_BP$classification<-"All chimeric\ngene-TE transcripts"  
+dataGO_BP$tissue <- factor(dataGO_BP$tissue, levels = c("head", "gut", "ovary"), labels=c("Head", "Gut", "Ovary"))
+
+dataGO_BP$shortName <- factor(dataGO_BP$shortName, levels=rev(c("Regulation of cellular process", "Regulation of biological process", "Negative regulation of biological process", "Epithelium development", "Transcription from RNA polymerase II promoter", "Single-multicellular organism process", "Multicellular development"  ,"Regulation of RNA biosynthetic process" , "Morphogenesis" , "Cell communication and signaling" )))
+dataGO_BP<-dataGO_BP %>% arrange(factor(shortName, levels = rev(c("Regulation of cellular process", "Regulation of biological process", "Negative regulation of biological process", "Epithelium development", "Transcription from RNA polymerase II promoter", "Single-multicellular organism process", "Multicellular development" ,"Regulation of RNA biosynthetic process" , "Morphogenesis" , "Cell communication and signaling"  ))))
+
+GO_BP_plot <-ggplot(dataGO_BP, aes(y=enrichmentScore, x=shortName)) + geom_col(aes(fill=type),alpha=0.7) + coord_flip() + facet_grid(classification~ tissue, scales = "free", space = "free") + labs(x="", y = "Enrichment score", fill="Annotation cluster") + theme_Publication() + geom_text(aes(label = nGenes), hjust = 0, size=5)  + scale_fill_manual(values=map_color) +
+  theme(axis.text = element_text( size = 16)) + scale_y_continuous(limits = c(0, 11), breaks = seq(0, 11, by = 2)) + guides(fill="none")  + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16)) + 
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + theme (axis.line.x = element_line(color = "white", 
+                                                                          size = 1, linetype = "solid"))
+GO_BP_plot
+
+dataGO_BP_g1$enrichmentScore<-as.numeric(as.character(dataGO_BP_g1$enrichmentScore))
+dataGO_BP_g1$classification <- "Overlap\n & AS"
+dataGO_BP_g1$tissue <- factor(dataGO_BP_g1$tissue, levels = c("head", "gut", "ovary"), labels=c("Head", "Gut", "Ovary"))
+
+dataGO_BP_g1$shortName <- factor(dataGO_BP_g1$shortName, levels=rev(c("Chromosome organization","Ubiquitination" , "Organelle organization", "Cell communication and signaling" , "Detection of chemical stimulus" , "Histone modification", "Regulation of cellular catabolic process", "Regulation of biological process", "Cellular amide metabolic process","Organonitrogen compound metabolic process",  "Regulation of catabolic process"   , "Regulation of proteolysis",  "Regulation of cellular metabolic process", "Cell projection assembly", "Assembly and organization")))
+dataGO_BP_g1<-dataGO_BP_g1 %>% arrange(factor(shortName, levels = rev(c("Chromosome organization" ,"Ubiquitination", "Organelle organization", "Cell communication and signaling" , "Detection of chemical stimulus" , "Histone modification",  "Regulation of cellular catabolic process", "Regulation of biological process", "Cellular amide metabolic process","Organonitrogen compound metabolic process", "Regulation of catabolic process"   , "Regulation of proteolysis",  "Regulation of cellular metabolic process", "Cell projection assembly", "Assembly and organization"))))
+
+GO_BP_g1_plot <-ggplot(dataGO_BP_g1, aes(y=enrichmentScore, x=shortName)) + geom_col(aes(fill=type),alpha=0.7) + coord_flip() + facet_grid(classification~ tissue, scales = "free", space = "free") + labs(x="", y = "Enrichment score", fill="Annotation cluster") + theme_Publication() + geom_text(aes(label = nGenes), hjust = 0, size=5)  + scale_fill_manual(values=map_color) +
+  theme(axis.text = element_text( size = 16)) + scale_y_continuous(limits = c(0, 11), breaks = seq(0, 11, by = 2)) + guides(fill="none")  + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16)) + 
+  theme(strip.background.x = element_blank(),strip.text.x = element_blank()) + 
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + theme (axis.line.x = element_line(color = "white", 
+                                                                          size = 1, linetype = "solid"))
+GO_BP_g1_plot
+
+dataGO_BP_g2$tissue <- factor(dataGO_BP_g2$tissue, levels = c("head", "gut", "ovary"), labels=c("Head", "Gut", "Ovary"))
+dataGO_BP_g2$enrichmentScore<-as.numeric(as.character(dataGO_BP_g2$enrichmentScore))
+dataGO_BP_g2$classification <- "Internal\ninsertions"
+dataGO_BP_g2$shortName<-factor(dataGO_BP_g2$shortName, levels=rev(c("Epithelium development"   , "Regulation of cellular process", "Negative regulation of biological process", "Regulation of transcription"  ,  "Transcription from RNA polymerase II promoter","Multicellular development", "Regulation of compound metabolic process" , "Regulation of biosynthetic process" , "Regulation of biological process" , "Cell communication"  , "Cell development"     )))
+dataGO_BP_g2<-dataGO_BP_g2 %>% arrange(factor(shortName, levels = rev(c("Epithelium development"   , "Regulation of cellular process", "Negative regulation of biological process", "Regulation of transcription"  , "Transcription from RNA polymerase II promoter","Multicellular development", "Regulation of compound metabolic process", "Regulation of biosynthetic process" , "Regulation of biological process" , "Cell communication" , "Cell development"    ))))
+
+GO_BP_g2_plot <-ggplot(dataGO_BP_g2, aes(y=enrichmentScore, x=shortName)) + geom_col(aes(fill=type),alpha=0.7) + coord_flip() + facet_grid(classification~ tissue, scales = "free", space = "free") + labs(x="", y = "Enrichment score", fill="Annotation cluster") + theme_Publication() + geom_text(aes(label = nGenes), hjust = 0, size=5)  + scale_fill_manual(values=map_color) +
+  theme(axis.text = element_text( size = 16)) + scale_y_continuous(limits = c(0, 11), breaks = seq(0, 11, by = 2)) + guides(fill="none")  + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16))  + 
+  theme(strip.background.x = element_blank(),strip.text.x = element_blank())
+GO_BP_g2_plot
+
+plot_A <- plot_grid(GO_BP_plot, GO_BP_g1_plot, GO_BP_g2_plot, nrow=3, align = 'v', axis = 'l', rel_heights = c(1,1.2,1))
+
+dataGO_MF <- fread("GO/resultParse_all_mf2.tsv")
+dataGO_MF_g1 <- fread("GO/resultParse_g1_mf2.tsv")
+dataGO_MF_g2 <- fread("GO/resultParse_g2_mf2.tsv")
+
+
+color_map_mf<-c(`DNA binding` = "#fee08b", `Enzyme activity` = "#A65628", Transcription = "#999999",  `Ion binding` = "#F781BF",  `Ubiquitin activity` = "#fc8d59", `Channel activity` = "#99d594")
+
+dataGO_MF$enrichmentScore<-as.numeric(dataGO_MF$enrichmentScore)
+dataGO_MF$classification <- "All chimeric\ntranscripts"
+dataGO_MF$tissue <- factor(dataGO_MF$tissue, levels = c("head", "gut", "ovary"), labels=c("Head", "Gut", "Ovary"))
+dataGO_MF$shortName<-factor(dataGO_MF$shortName, levels=rev(c("DNA binding", "Regulatory region nucleic acid binding", "Nucleic acid binding transcription factor activity", "Transcription factor activity" , "Actin binding" )))
+dataGO_MF<-dataGO_MF %>% arrange(factor(shortName, levels = rev(c("DNA binding", "Regulatory region nucleic acid binding", "Nucleic acid binding transcription factor activity", "Transcription factor activity" , "Actin binding" ))))
+
+GO_MF_plot <-ggplot(dataGO_MF, aes(y=enrichmentScore, x=shortName)) + geom_col(aes(fill=type),alpha=0.7) + coord_flip() + facet_grid(classification~ tissue, scales = "free", space = "free") + labs(x="", y = "Enrichment score", fill="Annotation cluster") + theme_Publication() + geom_text(aes(label = nGenes), hjust = 0, size=5)  + scale_fill_manual(values=color_map_mf) +
+  theme(axis.text = element_text( size = 16)) + scale_y_continuous(limits = c(0, 11), breaks = seq(0, 11, by = 2)) + guides(fill="none")  + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16)) + 
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + theme (axis.line.x = element_line(color = "white", 
+                                                                          size = 1, linetype = "solid"))
+GO_MF_plot
+
+
+dataGO_MF_g1$enrichmentScore<-as.numeric(dataGO_MF_g1$enrichmentScore)
+dataGO_MF_g1$tissue <- factor(dataGO_MF_g1$tissue, levels = c("head", "gut", "ovary"), labels=c("Head", "Gut", "Ovary"))
+dataGO_MF_g1$shortName<-factor(dataGO_MF_g1$shortName, levels=rev(c("Ubiquitin-protein transferase activity", "Nucleic acid binding" , "Ion channel activity", "Cation channel activity" ,  "Heterocyclic compound binding", "Protein kinase binding"  )))
+dataGO_MF_g1<-dataGO_MF_g1 %>% arrange(factor(shortName, levels = rev(c("Ubiquitin-protein transferase activity", "Nucleic acid binding" , "Ion channel activity", "Cation channel activity" ,  "Heterocyclic compound binding" , "Protein kinase binding" ))))
+dataGO_MF_g1$classification <-  "Overlap\n & AS"
+GO_MF_g1_plot <-ggplot(dataGO_MF_g1, aes(y=enrichmentScore, x=shortName)) + geom_col(aes(fill=type),alpha=0.7) + coord_flip() + facet_grid(classification~ tissue, scales = "free", space = "free") + labs(x="", y = "Enrichment score", fill="Annotation cluster") + theme_Publication() + geom_text(aes(label = nGenes), hjust = 0, size=5)  + scale_fill_manual(values=color_map_mf) + 
+  theme(axis.text = element_text( size = 16)) + scale_y_continuous(limits = c(0, 11), breaks = seq(0, 11,, by = 2)) + guides(fill="none")  + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16)) + 
+  theme(strip.background.x = element_blank(),strip.text.x = element_blank()) + 
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + theme (axis.line.x = element_line(color = "white", 
+                                                                          size = 1, linetype = "solid"))
+GO_MF_g1_plot
+
+
+dataGO_MF_g2$enrichmentScore<-as.numeric(dataGO_MF_g2$enrichmentScore)
+dataGO_MF_g2$tissue <- factor(dataGO_MF_g2$tissue, levels = c("head", "gut", "ovary"), labels=c("Head", "Gut", "Ovary"))
+dataGO_MF_g2$shortName<-factor(dataGO_MF_g2$shortName, levels=rev(c("Nucleic acid binding transcription factor activity", "Ion binding"  , "RNA polymerase II transcription", "Lysine N-methyltransferase activity"   ,"Transcription factor activity","GTPase activator"   )))
+dataGO_MF_g2<-dataGO_MF_g2 %>% arrange(factor(shortName, levels = rev(c("Nucleic acid binding transcription factor activity", "Ion binding"  , "RNA polymerase II transcription", "Lysine N-methyltransferase activity"   ,"Transcription factor activity","GTPase activator"   ))))
+dataGO_MF_g2$classification <- "Internal\ninsertions"
+
+GO_MF_g2_plot <-ggplot(dataGO_MF_g2, aes(y=enrichmentScore, x=shortName)) + geom_col(aes(fill=type),alpha=0.7) + coord_flip() + facet_grid(classification~ tissue, scales = "free", space = "free") + labs(x="", y = "Enrichment score", fill="Annotation cluster") + theme_Publication() + geom_text(aes(label = nGenes), hjust = 0, size=5)  + scale_fill_manual(values=color_map_mf) + 
+  theme(axis.text = element_text( size = 16)) + scale_y_continuous(limits = c(0, 11), breaks = seq(0, 11, by = 2)) + guides(fill="none")  + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16))  + 
+  theme(strip.background.x = element_blank(),strip.text.x = element_blank())
+GO_MF_g2_plot
+
+plot_grid(GO_BP_plot, GO_BP_g1_plot, GO_BP_g2_plot, GO_MF_plot, GO_MF_g1_plot, GO_MF_g2_plot, ncol=1, align = 'v', axis = 'l', labels=c("A","","","B","",""), label_size=18, rel_heights = c(1, 1.2,1.1,0.7,0.6,0.9))
+
+ggsave("FIGURES/Figure6.png", height = 15.5, width = 13.5)
+ggsave("FIGURES/Figure6.pdf", height = 15.5, width = 13.5)
+ggsave("FIGURES/Figure6.svg", height = 15.5, width = 13.5)
+
+```
+
+# 8. PFAM domains
+
+
+```{r pfam-domains-table-s9a}
+
+length(unique(chimerics[chimerics$geneStatus=="mRNA",]$id))
+
+length(unique(chimerics[chimerics$geneStatus=="mRNA" & chimerics$CP>=0.39,]$id))
+
+tissues <- c("head", "gut", "ovary")
+strains <- c("AKA-017", "JUT-011", "MUN-016", "SLA-001", "TOM-007")
+
+params <- expand.grid(strains,tissues)
+
+ts9a <- data.frame()
+
+for (i in seq_len(nrow(params))) {
+  strainID <- params$Var1[i]
+  tissueID <- params$Var2[i]
+  
+  data <- chimerics %>% filter(strain==strainID,
+                               tissue==tissueID)
+  nTotalChim <- length(unique(data$id))
+  nPC <-  length(unique(data[data$geneStatus=="mRNA",]$id))
+  nonPC <-  length(unique(data[data$geneStatus!="mRNA",]$id))
+  perPC <-  round(nPC/nTotalChim*100,2)
+  nCodingPot <- length(unique(data[data$CP >= 0.39,]$id))
+  nNonCodingPot <- length(unique(data[data$CP < 0.39,]$id))
+  nCodingPotmRNA <- length(unique(data[data$CP >= 0.39 & data$geneStatus=="mRNA",]$id))
+    nCodingPotNonmRNA <- length(unique(data[data$CP >= 0.39 & data$geneStatu!="mRNA",]$id))
+     nNonCodingPotmRNA <- length(unique(data[data$CP < 0.39 & data$geneStatus=="mRNA",]$id))
+    nNonCodingPotNonmRNA <- length(unique(data[data$CP < 0.39 & data$geneStatu!="mRNA",]$id))
+    perPCwithCP <- round(nCodingPotmRNA/nPC*100,2)
+    
+    result <- data.frame(strain=strainID,
+                         tissue=tissueID,
+                         nTotalChim=nTotalChim,
+                         nPC=nPC,
+                         nonPC=nonPC,
+                         perPC=perPC,
+                         nCodingPot=nCodingPot,
+                         nNonCodingPot=nNonCodingPot,
+                         nCodingPotmRNA=nCodingPotmRNA,
+                         nCodingPotNonmRNA=nCodingPotNonmRNA,
+                         nNonCodingPotmRNA=nNonCodingPotmRNA,
+                         nNonCodingPotNonmRNA=nNonCodingPotNonmRNA,
+                         perPCwithCP=perPCwithCP
+                         )
+ts9a <- rbind(ts9a,result)
+  
+
+}
+
+write.table(ts9a, file="1DescriptiveAnalysis/Table_S9A.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+
+
+
+params <- expand.grid(tissues)
+
+ts9ab <- data.frame()
+
+for (i in seq_len(nrow(params))) {
+  tissueID <- params$Var1[i]
+  
+  data <- chimerics %>% filter(tissue==tissueID)
+  
+  nPC <-  length(unique(data[data$geneStatus=="mRNA",]$id))
+
+  nCodingPotmRNA <- length(unique(data[data$CP >= 0.39 & data$geneStatus=="mRNA",]$id))
+   
+    perPCwithCP <- round(nCodingPotmRNA/nPC*100,2)
+    
+    result <- data.frame(strain="All",
+                         tissue=tissueID,
+                         nPC=nPC,
+
+                         nCodingPotmRNA=nCodingPotmRNA,
+
+                         perPCwithCP=perPCwithCP
+                         )
+ts9ab <- rbind(ts9ab,result)
+  
+
+}
+
+write.table(ts9ab, file="1DescriptiveAnalysis/Table_S9A_B.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+
+
+```
+
+
+
+```{r openPfamResults}
+pfamResults <- fread("../pfamDomains/globalResult.tsv", header = F, sep ="\t", , colClasses = c("V1"='character'))
+colnames(pfamResults) <- c("id","strain","tissue","TE_family", "length_TE","transcript_trinity","seq_id","alignment_start", "alignment_end", "envelope_start", "envelope_end", "hmm_acc", "hmm_name", "type", "hmm_start", "hmm_end", "hmm_length", "bit_score", "E-value", "significance", "clan","NA")
+pfamResults$seq_id <- NULL
+pfamResults$`NA` <- NULL
+
+```
+
+
+```{r percentage domain}
+pfamResults$percentage <- (pfamResults$hmm_end-pfamResults$hmm_start+1)/pfamResults$hmm_length * 100
+pfamResults$status <- ""
+pfamResults[pfamResults$percentage==100,]$status <- "Complete"
+pfamResults[pfamResults$percentage >= 50 & pfamResults$percentage < 100,]$status <- "Partial"
+pfamResults[pfamResults$percentage < 50,]$status <- "None"
+table(pfamResults$status)
+
+write.table(x = pfamResults, file = "../pfamDomains/globalResultParsed.tmp.tsv", quote = F, row.names = F, col.names = T)
+```
+
+Add info
+```{r info}
+pfamResults_unique<-unique(pfamResults[,c("id","strain","tissue","TE_family")])
+
+chimerics_to_domain <- merge(pfamResults_unique, unique(chimerics[,c("tissue","strain","transcript_trinity", "id", "TE_family", "gene", "transcript_stringtie", "transcript", "expr", "TE_class", "SS", "group")]),by=c("id","strain","tissue","TE_family"))
+
+
+chimerics_to_domain <- chimerics_to_domain %>% group_by(tissue, strain, transcript_trinity, id, TE_family, gene) %>% summarize(SS = paste0(unique(SS), collapse = "; "), group = paste0(unique(group), collapse="; "), avgExpr = paste0(mean(unique(expr)))) %>% unique()
+# dim(pfamResults) 139  22
+pfamResultsInfo <- merge(pfamResults, chimerics_to_domain, by=c("tissue","strain","transcript_trinity", "id", "TE_family"))
+
+
+length(unique(pfamResultsInfo$id))
+
+length(unique(pfamResultsInfo$gene))
+
+write.table(x = pfamResultsInfo, file = "../pfamDomains/globalResultParsedInfo.tsv", quote = F, row.names = F, col.names = T, sep = "\t")
+
+```
+
+```{r table-s9b}
+domains <- unique(pfamResultsInfo[,c("hmm_acc","hmm_length","hmm_name")])
+domains$hmm_acc <- sapply(strsplit(as.character(domains$hmm_acc), split="\\.(?=.)", perl=TRUE), `[`, 1)
+write.table(domains, file="1DescriptiveAnalysis/Table_S9B.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+
+median(domains$hmm_length)
+```
+
+```{r table-s9c}
+pfamResultsInfo_s9 <- pfamResultsInfo
+pfamResultsInfo_s9$alignment_end<-NULL
+pfamResultsInfo_s9$envelope_start<-NULL
+pfamResultsInfo_s9$alignment_start<-NULL
+pfamResultsInfo_s9$envelope_end<-NULL
+pfamResultsInfo_s9$hmm_end <- NULL
+pfamResultsInfo_s9$hmm_start <- NULL
+pfamResultsInfo_s9$clan<-NULL
+pfamResultsInfo_s9$bit_score<-NULL
+pfamResultsInfo_s9$`E-value`<-NULL
+pfamResultsInfo_s9$significance<-NULL
+pfamResultsInfo_s9$transcript_trinity<-NULL
+
+
+pfamResultsInfo_s9 <- merge(pfamResultsInfo_s9,unique(TE_library_family_all[,c("Family","Class")]),by.y=c("Family"), by.x=c("TE_family"))
+
+
+# Create with table-s9c.sh
+
+length(unique(pfamResultsInfo_s9$TE_family))
+
+pfamResultsInfo_s9 %>% group_by(TE_family) %>% summarize(n=n_distinct(unique(hmm_name))) %>% filter(n>1)
+
+min(pfamResultsInfo_s9$hmm_length)
+max(pfamResultsInfo_s9$hmm_length)
+
+mean(unique(pfamResultsInfo_s9[,c("hmm_acc", "hmm_length")])$hmm_length)
+
+write.table(pfamResultsInfo_s9, file="../pfamDomains/pfamResultsInfo_s9.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+
+```
+
+```{r}
+lipatov <- fread("1DescriptiveAnalysis/lipatov/LipatovGenes.tsv",header=F)
+intersect(unique(lipatov$V1), unique(pfamResultsInfo_s9$gene))
+
+intersect(unique(supp5_treiber_waddel$gene_id), unique(pfamResultsInfo_s9$gene))
+
+intersect(unique(batut_list$gene_id), unique(pfamResultsInfo_s9$gene))
+
+```
+
+
+```{r dc-go enrichment}
+
+domains_enrichment <- unique(pfamResultsInfo[,c("status", "hmm_acc")])
+domains_enrichment$hmm_acc <- sapply(strsplit(as.character(domains_enrichment$hmm_acc), split="\\.(?=.)", perl=TRUE), `[`, 1)
+domains_enrichment <- unique(domains_enrichment[domains_enrichment$status!="None",]$hmm_acc)
+write.table(data.frame(domains_enrichment), file="../pfamDomains/input_dcgo.tab", quote = F, col.names = F, row.names = F, sep = "\t")
+
+```
+
+```{r}
+table(unique(chimerics_to_domain[,c("id","group")])$group)
+
+chimerics_to_domain2 <- chimerics_to_domain %>% group_by(id) %>% summarize(tissues=paste0(unique(tissue),collapse="; ")) %>% unique()
+table(unique(chimerics_to_domain2[,c("id","tissues")])$tissues)
+
+
+
+chimerics_to_domain <- merge(pfamResults_unique, unique(chimerics[,c("tissue","strain","transcript_trinity", "id", "TE_family", "gene", "transcript_stringtie", "transcript", "expr", "TE_class", "SS", "group")]),by=c("id","strain","tissue","TE_family"))
+
+
+chimerics_to_domain <- chimerics_to_domain %>% unique()
+# dim(pfamResults) 139  22
+pfamResultsInfo2 <- merge(pfamResults, chimerics_to_domain, by=c("tissue","strain","transcript_trinity", "id", "TE_family"))
+
+median(unique(pfamResultsInfo2[,c("id","tissue","strain","expr")])$expr)
+
+pfamResultsInfo3 <- unique(pfamResultsInfo2[,c("expr","id","tissue","strain","hmm_acc","percentage","status")])
+
+pfamResultsInfoComplete <- pfamResultsInfo3[pfamResultsInfo3$status=="Complete",]
+pfamResultsInfoComplete <- unique(pfamResultsInfoComplete[,c("expr", "tissue","strain","id")])
+pfamResultsInfoNoComplete <- pfamResultsInfo3[pfamResultsInfo3$status!="Complete" pfamResultsInfoNoComplete <- unique(pfamResultsInfoNoComplete[,c("expr", "tissue","strain","id")])
+  
+                                              
+x <- rbind(pfamResultsInfoComplete, pfamResultsInfoNoComplete)
+pfamResultsInfoNoComplete<-x[! duplicated(x, fromLast=TRUE) & seq(nrow(x)) <= nrow(pfamResultsInfoNoComplete), ]
+                                      
+
+```
+
+```{r table-s9d}
+unique(pfamResultsInfo[,c("strain","tissue","TE_family","gene","transcript_trinity","hmm_name","hmm_length")])
+
+write.table(unique(pfamResultsInfo[,c("strain","tissue","TE_family","gene","transcript_trinity","hmm_name","hmm_length")]), "../pfamDomains/checkDomainsTesConsensus/check_domains_consensus.tab",col.names = F, row.names = F, quote = F, sep = "\t")
+``` 
+
+Discussion
+
+```{r}
+chimerics_expr<-chimerics[chimerics$expr>=1,]
+chimerics[chimerics$CP<0.39]
+
+listInput <- list(First=unique(chimerics_expr[chimerics_expr$CP>=0.39 & chimerics_expr$exon=="First exon",]$id),
+                  Middle=unique(chimerics_expr[chimerics_expr$CP>=0.39 & chimerics_expr$exon=="Middle exon",]$id),
+                  Last=unique(chimerics_expr[chimerics_expr$CP>=0.39 & chimerics_expr$exon=="Last exon",]$id),
+                  NoCoding=chimerics[chimerics$CP<0.39 & chimerics$geneStatus=="mRNA",]$id)
+ upset(fromList(listInput))
+
+ 
+s7a_2 <- unique(chimerics[,c("tissue", "strain", "transcript", "transcript_trinity", "transcript_stringtie", "gene", "TE_family", "exon", "expr", "CP")])
+ 
+write.table(s7a_2, file="Table_S7A_2.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+
+
+```
