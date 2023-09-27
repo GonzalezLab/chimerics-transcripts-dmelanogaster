@@ -231,7 +231,7 @@ b <- ggplot(results[results$class=="Body-part specific transcriptome",], aes(x=s
 
 cowplot::plot_grid(a,b,ncol = 1)
 
-ggsave(filename="FIGURES/Figure1C.pdf",plot=cowplot::plot_grid(a,b,ncol = 1), height = 10, width = 8)
+ggsave(filename="FIGURES/Figure1C.pdf",plot=cowplot::plot_grid(a,b,ncol = 1), height = 12, width = 10)
 ggsave(filename="FIGURES/Figure1C.svg",plot=cowplot::plot_grid(a,b,ncol = 1), height = 12, width = 10)
 ```
 
@@ -305,7 +305,8 @@ group1_shortInsertions <- chimerics %>% filter(group==1) %>% filter(TE_length_to
 group2_shortInsertions <- chimerics %>% filter(group==2) %>% filter(TE_length_total < 120) %>% summarize(n_distinct(id)) %>% pull()
 
 prop.test(x=c(group1_shortInsertions,group2_shortInsertions), n=c(group1_total, group2_total))
-chisq.test(matrix(c(group1_shortInsertions,group2_shortInsertions, group1_total, group2_total),nrow=2))
+chisq.test(matrix(c(group1_shortInsertions,group2_shortInsertions, group1_total-group1_shortInsertions, group2_total-group2_shortInsertions),nrow=2))
+
 ```
 
 We found that TEs in this group are shorter than those of the overlap
@@ -489,8 +490,8 @@ prop.test(x=c(s2c["Overlap & AS insertions-All","num_strain_specific"],
               s2c["Internal insertions-All","num_total_transcripts"]))
 
 chisq.test(matrix(c(s2c["Overlap & AS insertions-All","num_strain_specific"],
-              s2c["Internal insertions-All","num_strain_specific"],s2c["Overlap & AS insertions-All","num_total_transcripts"],
-              s2c["Internal insertions-All","num_total_transcripts"]),nrow=2))
+              s2c["Internal insertions-All","num_strain_specific"],s2c["Overlap & AS insertions-All","num_total_transcripts"]-s2c["Overlap & AS insertions-All","num_strain_specific"],
+              s2c["Internal insertions-All","num_total_transcripts"]-s2c["Internal insertions-All","num_strain_specific"]),nrow=2))
 
 
 prop.test(x=c(s2c["Overlap & AS insertions-All","num_strain_shared"]+s2c["Overlap & AS insertions-All","num_strain_pol"],
@@ -499,17 +500,19 @@ prop.test(x=c(s2c["Overlap & AS insertions-All","num_strain_shared"]+s2c["Overla
               s2c["Internal insertions-All","num_total_transcripts"]))
 
 chisq.test(matrix(c(s2c["Overlap & AS insertions-All","num_strain_shared"]+s2c["Overlap & AS insertions-All","num_strain_pol"],
-              s2c["Internal insertions-All", "num_strain_shared"] + s2c["Internal insertions-All", "num_strain_pol"],s2c["Overlap & AS insertions-All","num_total_transcripts"],
-              s2c["Internal insertions-All","num_total_transcripts"]),nrow=2))
-
+              s2c["Internal insertions-All", "num_strain_shared"] + s2c["Internal insertions-All", "num_strain_pol"],s2c["Overlap & AS insertions-All","num_total_transcripts"]-(s2c["Overlap & AS insertions-All","num_strain_shared"]+s2c["Overlap & AS insertions-All","num_strain_pol"]),
+              s2c["Internal insertions-All","num_total_transcripts"]-(s2c["Internal insertions-All", "num_strain_shared"] + s2c["Internal insertions-All", "num_strain_pol"])),nrow=2))
 
 prop.test(x=c(s2c["Overlap & AS insertions-≥120","num_strain_specific"],
               s2c["Internal insertions-≥120","num_strain_specific"]), 
           n=c(s2c["Overlap & AS insertions-≥120","num_total_transcripts"],
               s2c["Internal insertions-≥120","num_total_transcripts"]))
+
 chisq.test(matrix(c(s2c["Overlap & AS insertions-≥120","num_strain_specific"],
-              s2c["Internal insertions-≥120","num_strain_specific"],s2c["Overlap & AS insertions-≥120","num_total_transcripts"],
-              s2c["Internal insertions-≥120","num_total_transcripts"]),nrow=2))
+              s2c["Internal insertions-≥120","num_strain_specific"],
+              s2c["Overlap & AS insertions-≥120","num_total_transcripts"]-s2c["Overlap & AS insertions-≥120","num_strain_specific"],
+              s2c["Internal insertions-≥120","num_total_transcripts"]- s2c["Internal insertions-≥120","num_strain_specific"]),nrow=2))
+
 
 
 prop.test(x=c(s2c["Overlap & AS insertions-≥120","num_strain_shared"]+s2c["Overlap & AS insertions-≥120","num_strain_pol"],
@@ -517,13 +520,9 @@ prop.test(x=c(s2c["Overlap & AS insertions-≥120","num_strain_shared"]+s2c["Ove
           n=c(s2c["Overlap & AS insertions-≥120","num_total_transcripts"],
               s2c["Internal insertions-≥120","num_total_transcripts"]))
 
-prop.test(x=c(s2c["Overlap & AS insertions-≥120","num_strain_specific"],
-              s2c["Internal insertions-≥120","num_strain_specific"]), 
-          n=c(s2c["Overlap & AS insertions-≥120","num_total_transcripts"],
-              s2c["Internal insertions-≥120","num_total_transcripts"]))
 chisq.test(matrix(c(s2c["Overlap & AS insertions-≥120","num_strain_shared"]+s2c["Overlap & AS insertions-≥120","num_strain_pol"],
-              s2c["Internal insertions-≥120", "num_strain_shared"] + s2c["Internal insertions-≥120", "num_strain_pol"],s2c["Overlap & AS insertions-≥120","num_total_transcripts"],
-              s2c["Internal insertions-≥120","num_total_transcripts"]),nrow=2))
+              s2c["Internal insertions-≥120", "num_strain_shared"] + s2c["Internal insertions-≥120", "num_strain_pol"],s2c["Overlap & AS insertions-≥120","num_total_transcripts"]-(s2c["Overlap & AS insertions-≥120","num_strain_shared"]+s2c["Overlap & AS insertions-≥120","num_strain_pol"]),
+              s2c["Internal insertions-≥120","num_total_transcripts"]-(s2c["Internal insertions-≥120", "num_strain_shared"] + s2c["Internal insertions-≥120", "num_strain_pol"])),nrow=2))
 
 ```
 
@@ -890,13 +889,14 @@ ovary_total <- results["ovary", "n_total"]
 round(ovary_n/ovary_total*100,1)
 
 prop.test(x=c(head_n, ovary_n),n=c(head_total, ovary_total))
-chisq.test(matrix(c(head_n, ovary_n,head_total, ovary_total),nrow=2))
+chisq.test(matrix(c(head_n, ovary_n,head_total-head_n, ovary_total-ovary_n),nrow=2))
 
 prop.test(x=c(head_n, gut_n),n=c(head_total, gut_total))
-chisq.test(matrix(c(head_n, gut_n,head_total, gut_total),nrow=2))
+chisq.test(matrix(c(head_n, gut_n,head_total-head_n, gut_total-gut_n),nrow=2))
+
 
 prop.test(x=c(ovary_n, gut_n),n=c(ovary_total, gut_total))
-chisq.test(matrix(c(ovary_n, gut_n,ovary_total, gut_total),nrow=2))
+chisq.test(matrix(c(ovary_n, gut_n,ovary_total-ovary_n, gut_total-gut_n),nrow=2))
 
 ```
 
@@ -910,8 +910,8 @@ prop.test(x=c(s3b["head","n_total_chimerics_bp_specific"],
           n=c(s3b["head","n_total_chimerics"],
               s3b["gut","n_total_chimerics"]))
 chisq.test(matrix(c(s3b["head","n_total_chimerics_bp_specific"],
-              s3b["gut","n_total_chimerics_bp_specific"],s3b["head","n_total_chimerics"],
-              s3b["gut","n_total_chimerics"]),nrow=2))
+              s3b["gut","n_total_chimerics_bp_specific"],s3b["head","n_total_chimerics"]-s3b["head","n_total_chimerics_bp_specific"],
+              s3b["gut","n_total_chimerics"]- s3b["gut","n_total_chimerics_bp_specific"]),nrow=2))
 
 
 prop.test(x=c(s3b["head","n_total_chimerics_bp_specific"],
@@ -919,38 +919,43 @@ prop.test(x=c(s3b["head","n_total_chimerics_bp_specific"],
           n=c(s3b["head","n_total_chimerics"],
               s3b["ovary","n_total_chimerics"]))
 chisq.test(matrix(c(s3b["head","n_total_chimerics_bp_specific"],
-              s3b["ovary","n_total_chimerics_bp_specific"],s3b["head","n_total_chimerics"], s3b["ovary","n_total_chimerics"]),nrow=2))
+              s3b["ovary","n_total_chimerics_bp_specific"],s3b["head","n_total_chimerics"]-s3b["head","n_total_chimerics_bp_specific"], s3b["ovary","n_total_chimerics"]-s3b["ovary","n_total_chimerics_bp_specific"]),nrow=2))
+
 
 prop.test(x=c(s3b["gut","n_total_chimerics_bp_specific"],
               s3b["ovary","n_total_chimerics_bp_specific"]), 
-          n=c(s3b["head","n_total_chimerics"],
-              s3b["gut","n_total_chimerics"]))
+          n=c(s3b["gut","n_total_chimerics"],
+              s3b["ovary","n_total_chimerics"]))
 chisq.test(matrix(c(s3b["gut","n_total_chimerics_bp_specific"],
-              s3b["ovary","n_total_chimerics_bp_specific"],s3b["head","n_total_chimerics"], s3b["gut","n_total_chimerics"]),nrow=2))
+              s3b["ovary","n_total_chimerics_bp_specific"],s3b["gut","n_total_chimerics"]-s3b["gut","n_total_chimerics_bp_specific"], s3b["ovary","n_total_chimerics"]-s3b["ovary","n_total_chimerics_bp_specific"]),nrow=2))
+
+
 
 prop.test(x=c(s3b["head","n_total_chimerics_bp_specific"],
               s3b["head","bp_specific"]), 
           n=c(s3b["head","n_total_chimerics"],
               s3b["head","n_total"]))
 chisq.test(matrix(c(s3b["head","n_total_chimerics_bp_specific"],
-              s3b["head","bp_specific"],s3b["head","n_total_chimerics"],
-              s3b["head","n_total"]),nrow=2))
+              s3b["head","bp_specific"],s3b["head","n_total_chimerics"]-s3b["head","n_total_chimerics_bp_specific"],
+              s3b["head","n_total"]-s3b["head","bp_specific"]),nrow=2))
+
 
 prop.test(x=c(s3b["gut","n_total_chimerics_bp_specific"],
               s3b["gut","bp_specific"]), 
           n=c(s3b["gut","n_total_chimerics"],
               s3b["gut","n_total"]))
 chisq.test(matrix(c(s3b["gut","n_total_chimerics_bp_specific"],
-              s3b["gut","bp_specific"],s3b["gut","n_total_chimerics"],
-              s3b["gut","n_total"]),nrow=2))
+              s3b["gut","bp_specific"],s3b["gut","n_total_chimerics"]-s3b["gut","n_total_chimerics_bp_specific"],
+              s3b["gut","n_total"]-  s3b["gut","bp_specific"]),nrow=2))
+
 
 prop.test(x=c(s3b["ovary","n_total_chimerics_bp_specific"],
               s3b["ovary","bp_specific"]), 
           n=c(s3b["ovary","n_total_chimerics"],
               s3b["ovary","n_total"]))
 chisq.test(matrix(c(s3b["ovary","n_total_chimerics_bp_specific"],
-              s3b["ovary","bp_specific"],s3b["ovary","n_total_chimerics"],
-              s3b["ovary","n_total"]),nrow=2))
+              s3b["ovary","bp_specific"],s3b["ovary","n_total_chimerics"]-s3b["ovary","n_total_chimerics_bp_specific"],
+              s3b["ovary","n_total"]-   s3b["ovary","bp_specific"]),nrow=2))
 ```
 
 ```{r table-s3c}
@@ -1015,14 +1020,11 @@ for (i in seq_len(nrow(params))) {
     n_ovary <- data %>% filter(tissue=="ovary") %>% summarise(n_distinct(id)) %>% pull()
     ovary_per <- paste0(round(n_ovary/n_total_ovary*100,1),"%")
     
-    #p_val_1 <- prop.test(x = c(n_head, n_gut),n = c(n_total_head, n_total_gut))$p.value
-    p_val_1 <- chisq.test(matrix(c(n_head, n_gut,n_total_head, n_total_gut ),nrow=2))$p.value
-    
-        # p_val_2 <- prop.test(x = c(n_head, n_ovary),n = c(n_total_head, n_total_ovary))$p.value
-            p_val_2 <- chisq.test(matrix(c(n_head, n_ovary,n_total_head, n_total_ovary),nrow=2))$p.value
+    p_val_1 <- prop.test(x = c(n_head, n_gut),n = c(n_total_head, n_total_gut))$p.value
 
-          #p_val_3 <- prop.test(x = c(n_gut, n_ovary),n = c(n_total_gut, n_total_ovary))$p.value
-           p_val_3 <- chisq.test(matrix(c(n_gut, n_ovary,n_total_gut, n_total_ovary),nrow=2))$p.value
+         p_val_2 <- prop.test(x = c(n_head, n_ovary),n = c(n_total_head, n_total_ovary))$p.value
+
+         p_val_3 <- prop.test(x = c(n_gut, n_ovary),n = c(n_total_gut, n_total_ovary))$p.value
 
             
       comparison <- paste0(t2, "head vs gut")          
@@ -1201,13 +1203,13 @@ for (i in seq_len(nrow(params))) {
   }
  
 t1<-prop.test(x=c(genes_3_utr, totalSequenceAnalyzed3UTR), n=c(genes_total, totalSequenceAnalyzed))
-t1.c<-chisq.test(matrix(c(genes_3_utr, totalSequenceAnalyzed3UTR,genes_total, totalSequenceAnalyzed),nrow=2))
+t1.c<-chisq.test(matrix(c(genes_3_utr, totalSequenceAnalyzed3UTR,genes_total-genes_3_utr, totalSequenceAnalyzed-totalSequenceAnalyzed3UTR),nrow=2))
 
 t2 <- prop.test(x=c(genes_5_utr, totalSequenceAnalyzed5UTR), n=c(genes_total, totalSequenceAnalyzed))
-t2.c<-chisq.test(matrix(c(genes_5_utr, totalSequenceAnalyzed5UTR,genes_total, totalSequenceAnalyzed),nrow=2))
+t2.c<-chisq.test(matrix(c(genes_5_utr, totalSequenceAnalyzed5UTR,genes_total-genes_5_utr, totalSequenceAnalyzed-totalSequenceAnalyzed5UTR),nrow=2))
 
 t3 <- prop.test(x=c(genes_internal, totalSequenceAnalyzedMiddle), n=c(genes_total, totalSequenceAnalyzed))
-t3.c<-chisq.test(matrix(c(genes_internal, totalSequenceAnalyzedMiddle ,genes_total, totalSequenceAnalyzed),nrow=2))
+t3.c<-chisq.test(matrix(c(genes_internal, totalSequenceAnalyzedMiddle ,genes_total-genes_internal, totalSequenceAnalyzed-totalSequenceAnalyzedMiddle),nrow=2))
 
 result <- data.frame(type=c(title,title,title),comparison=c("3'UTR","5'UTR", "Internal"), genes=c(genes_3_utr,genes_5_utr, genes_internal), proportion_1=c(as.character(t1$estimate[1]),as.character(t2$estimate[1]),as.character(t3$estimate[1])), proportion_2=c(as.character(t1$estimate[2]),as.character(t2$estimate[2]),as.character(t3$estimate[2])),
                      pvalue=c(t1.c$p.value,t2.c$p.value,t3.c$p.value))
@@ -1215,7 +1217,7 @@ result <- data.frame(type=c(title,title,title),comparison=c("3'UTR","5'UTR", "In
    table_s4a <- rbind(table_s4a,result)
 }
   
-write.table(table_s4a, file="1DescriptiveAnalysis/Table_S4A.tab", col.names = T, row.names = F, sep = "\t", quote = F)
+write.table(table_s4a, file="ANALYSES/1DescriptiveAnalysis/Table_S4A_fixed.tab", col.names = T, row.names = F, sep = "\t", quote = F)
   
 ```
 
@@ -1296,23 +1298,23 @@ Test of proportions of table s4b
 ```{r table-s4b-test}
 
 prop.test(x=c(255,97), n=c(1008,509))
-chisq.test(matrix(c(255,97, 1008,509),nrow=2))
+chisq.test(matrix(c(255,97, 1008-255,509-97),nrow=2))
 
 prop.test(x=c(483,242), n=c(1008,509)) 
-chisq.test(matrix(c(483,242,1008,509),nrow=2))
+chisq.test(matrix(c(483,242,1008-483,509-242),nrow=2))
 
 prop.test(x=c(270,170), n=c(1008,509))
-chisq.test(matrix(c(270,170,1008,509),nrow=2))
+chisq.test(matrix(c(270,170,1008-270,509-170),nrow=2))
 
 # 120
 prop.test(x=c(158,56), n=c(586,243))
-chisq.test(matrix(c(158,56, 586,243),nrow=2))
+chisq.test(matrix(c(158,56, 586-158,243-56),nrow=2))
 
 prop.test(x=c(321,132), n=c(586,243)) 
-chisq.test(matrix(c(321,132, 586,243),nrow=2))
+chisq.test(matrix(c(321,132, 586-321,243-132),nrow=2))
 
 prop.test(x=c(107,55), n=c(586,243))
-chisq.test(matrix(c(107,55, 586,243),nrow=2))
+chisq.test(matrix(c(107,55, 586-107,243-55),nrow=2))
 
 ```
 
@@ -1343,10 +1345,10 @@ chimerics_1TE_1pos %>%
 
 # test of proportions
 prop.test(x=c(42, 414), n=c(586, 1199))
-chisq.test(matrix(c(42, 414, 586, 1199),nrow=2))
+chisq.test(matrix(c(42, 414, 586-42, 1199-414),nrow=2))
 
 prop.test(x=c(25, 143), n=c(482, 506))
-chisq.test(matrix(c(25, 143, 482, 506),nrow=2))
+chisq.test(matrix(c(25, 143, 482-25, 506-143),nrow=2))
 
 ```
 
@@ -1463,7 +1465,9 @@ fig_s3a_df <- rbind(fig_s3a_df, result)
 fig_s3a_df
 
 fig_s3a_df$position <- factor(fig_s3a_df$position, levels=c("5'UTR", "Internal exon","3'UTR"))
-f3a<-ggplot(fig_s3a_df, aes(y=chimeric_transcripts, x = position)) + geom_col(aes(fill=frequency))   + theme_Publication() + scale_fill_manual(values= c("#386cb0", "#a6cee3")) + labs(fill="Frequency", x = "", y = "Number of gene-TE chimeric transcripts")  +   scale_y_continuous(expand = c(0, 0))  + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank())   +   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16)) + ylim(c(0,800))
+f3a<-ggplot(fig_s3a_df, aes(y=chimeric_transcripts, x = position)) + geom_col(aes(fill=frequency))   + theme_Publication() + scale_fill_manual(values= c("#386cb0", "#a6cee3")) + labs(fill="Frequency", x = "", y = "Number of gene-TE chimeric transcripts")  +   scale_y_continuous(expand = c(0, 0))  + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank())   + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16))
+
 
 ```
 
@@ -1477,7 +1481,7 @@ f3b<-ggplot(table_s4d, aes(y=chimeric_transcripts, x = position)) + geom_boxplot
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16))
 f3b
 
-table_s4d$position<-factor(table_s4d$position, levels=c("5'UTR","Internal\nexon","3'UTR"))
+table_s4d$position<-factor(table_s4d$position, levels=c("5'UTR","Internal exon","3'UTR"),labels = c("5'UTR","Internal\nexon","3'UTR"))
 f3b<-ggplot(table_s4d, aes(y=chimeric_transcripts, x = position)) + geom_col(position="stack",aes(fill=frequency))  + facet_grid(group~tissue ) + theme_Publication() + scale_fill_Publication()  + labs(fill="Frequency", x = "", y = "Number of gene-TE chimeric transcripts") + 
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), text = element_text(size=16), plot.title = element_text(size = 16))
 f3b
@@ -1486,9 +1490,9 @@ f3b
 
 ```{r figure3}
 
-ggsave(plot_grid(f3a,f3b,  align="h", axis = "b", labels = c("A","B"), label_size = 18,  rel_widths = c(0.45, 1)),file="FIGURES/Figure3.png", width = 15, height = 6.5)
-ggsave(plot_grid(f3a,f3b,  align="h", axis = "b", labels = c("A","B"), label_size = 18,  rel_widths = c(0.45, 1)),file="FIGURES/Figure3.pdf", width = 15, height = 6.5)
-ggsave(plot_grid(f3a,f3b,  align="h", axis = "b", labels = c("A","B"), label_size = 18,  rel_widths = c(0.45, 1)),file="FIGURES/Figure3.svg", width = 15, height = 6.5)
+ggsave(plot_grid(f3a,f3b,  align="h", axis = "b", labels = c("A","B"), label_size = 18,  rel_widths = c(0.45, 1)),file="FIGURES/Figure3_r.png", width = 15, height = 6.5)
+ggsave(plot_grid(f3a,f3b,  align="h", axis = "b", labels = c("A","B"), label_size = 18,  rel_widths = c(0.45, 1)),file="FIGURES/Figure3_r.pdf", width = 15, height = 6.5)
+ggsave(plot_grid(f3a,f3b,  align="h", axis = "b", labels = c("A","B"), label_size = 18,  rel_widths = c(0.45, 1)),file="FIGURES/Figure3_r.svg", width = 15, height = 6.5)
 ```
 
 # 4. Chimeric gene-TE transcripts are enriched for retrotransposon insertions
@@ -1572,7 +1576,10 @@ length(unique(chimerics$TE_family))
 length(unique(chimerics[chimerics$TE_class=="RNA",]$TE_family))
 
 prop.test(x=c(70,1178), n=c(90,1953.8))
-chisq.test(matrix(c(70,1178,90,1953.8), nrow = 2))
+chisq.test(matrix(c(70,1178,90-70,1953.8-1178), nrow = 2))
+
+prop.test(x=c(70,120), n=c(90,146))
+
 
 ```
 
@@ -1581,16 +1588,18 @@ chimerics%>%group_by(group) %>% summarize(n_distinct(TE_family))
 chimerics%>%group_by(group) %>% filter(TE_class=="RNA") %>% summarize(n_distinct(TE_family))
 
 prop.test(x=c(75,68),n=c(90,90))
-chisq.test(matrix(c(75,68,90,90), nrow = 2))
+chisq.test(matrix(c(75,68,90-75,90-68), nrow = 2))
 
  chimerics%>%group_by(group,TE_class)  %>% summarize(n_distinct(TE_family))
  prop.test(x=c(55,20),n=c(75,75))
-chisq.test(matrix(c(55,20,75,75), nrow = 2))
 chisq.test(matrix(c(55,1178,75,1953.8), nrow = 2))
+ prop.test(x=c(55,120),n=c(75,146))
+chisq.test(matrix(c(55,120,75-55,146-120), nrow = 2))
 
  prop.test(x=c(52,16),n=c(68,68))
-chisq.test(matrix(c(52,16,68,68), nrow = 2))
 chisq.test(matrix(c(52,1178,68,1953.8), nrow = 2))
+ prop.test(x=c(52,120),n=c(68,146))
+chisq.test(matrix(c(52,120,68-52,146-120), nrow = 2))
 
 ```
 
@@ -1790,8 +1799,8 @@ for (assemblyName in strains) {
   for ( TE in 1:nrow(occurrencesTE_chim_assembly)) {
     TEname<-as.character(occurrencesTE_chim_assembly[TE,]$Var1)
     
-    #pval<-prop.test(x=c(occurrencesTE_chim_assembly[occurrencesTE_chim_assembly$Var1==TEname,]$Freq,TE_assembly_occurrences[TE_assembly_occurrences$Var1==TEname,]$Freq),n=c(sum(occurrencesTE_chim_assembly$Freq),sum(TE_assembly_occurrences$Freq)))$p.value
-    pval<-chisq.test(matrix(c(occurrencesTE_chim_assembly[occurrencesTE_chim_assembly$Var1==TEname,]$Freq,TE_assembly_occurrences[TE_assembly_occurrences$Var1==TEname,]$Freq,sum(occurrencesTE_chim_assembly$Freq),sum(TE_assembly_occurrences$Freq)), nrow = 2))$p.value
+    pval<-prop.test(x=c(occurrencesTE_chim_assembly[occurrencesTE_chim_assembly$Var1==TEname,]$Freq,TE_assembly_occurrences[TE_assembly_occurrences$Var1==TEname,]$Freq),n=c(sum(occurrencesTE_chim_assembly$Freq),sum(TE_assembly_occurrences$Freq)))$p.value
+    #pval<-chisq.test(matrix(c(occurrencesTE_chim_assembly[occurrencesTE_chim_assembly$Var1==TEname,]$Freq,TE_assembly_occurrences[TE_assembly_occurrences$Var1==TEname,]$Freq,sum(occurrencesTE_chim_assembly$Freq),sum(TE_assembly_occurrences$Freq)), nrow = 2))$p.value
 
     if (pval < 0.05) {
       if ( occurrencesTE_chim_assembly[TE,]$percentage > TE_assembly_occurrences[TE_assembly_occurrences$Var1==TEname,]$percentage) {
@@ -1811,7 +1820,7 @@ for (assemblyName in strains) {
 colnames(resultTEfam) <- c("TE family", "Assembly", "P-value", "% chimeric transcripts", "% genome strain", "# copies genome", "Result")
 resultTEfamFilter <- resultTEfam[resultTEfam$`# copies genome` >= 20,]
 
-write.table(resultTEfamFilter, file="1DescriptiveAnalysis/Table_S5D.tab", quote = F, col.names = T, row.names = F, sep = "\t")
+write.table(resultTEfamFilter, file="ANALYSES/1DescriptiveAnalysis/Table_S5D_fixed.tab", quote = F, col.names = T, row.names = F, sep = "\t")
 
 ```
 
@@ -2000,10 +2009,7 @@ listInput <- list(Head = unique(results_fimo_ine[results_fimo_ine$tissue=="head"
     theme(legend.position = "none",   panel.grid.minor = element_blank(),
           axis.text = element_text(  color="black")) + labs(x="",y="")
 
-fig_s4<- plot_grid(plot_fimo_roo_solo_ltr,plot_fimo_ine,plot_fimo_bp_sp, ncol = 1,labels="AUTO", align = "hv", rel_heights = c(0.5,1.3,1),label_size = 18)
-
-ggsave(fig_s4,file="Figure_S4.pdf", width = 7.8, height = 8)
-
+plot_grid(plot_fimo_roo_solo_ltr,plot_fimo_ine,plot_fimo_bp_sp, ncol = 1,labels="AUTO", align = "hv", rel_heights = c(0.5,1.3,1),label_size = 18)
 ```
 
 # 5. Expression analysis
@@ -2278,21 +2284,14 @@ plotB
 
 plot_grid(fig5a, plotB, align = "h", axis = "t", nrow=2,labels = c('A', 'B'), label_size = 18, rel_heights =  c(1.5,3))
 
-ggsave(plot_grid(fig5a, plotB, align = "h", axis = "t", nrow=2,labels = c('A', 'B'), label_size = 18, rel_heights =  c(1.5,3)),file="FIGURES/Figure5.png", width = 7.8, height = 8)
+ggsave(plot_grid(fig5a, plotB, align = "h", axis = "t", nrow=2,labels = c('A', 'B'), label_size = 18, rel_heights =  c(1.5,3))
+       ,file="FIGURES/Figure5.png", width = 7.8, height = 8)
 
 ggsave(plot_grid(fig5a, plotB, align = "h", axis = "t", nrow=2,labels = c('A', 'B'), label_size = 18, rel_heights =  c(1.5,3))
        ,file="FIGURES/Figure5.pdf", width = 7.8, height = 8)
 
 ggsave(plot_grid(fig5a, plotB, align = "h", axis = "t", nrow=2,labels = c('A', 'B'), label_size = 18, rel_heights =  c(1.5,3))
        ,file="FIGURES/Figure5.svg", width = 7.8, height = 8)
-
-plot_grid(fig5a, cowplot::ggdraw() + cowplot::draw_image("C.png", scale = 0.9), plotB, cowplot::ggdraw() + cowplot::draw_image("D.png", scale = 0.9), align = "h", axis = "t", nrow=2,labels = c('A', 'C', 'B', 'D'), label_size = 18, rel_heights =  c(2,2.6))
-
-fig5<-plot_grid(fig5a, cowplot::ggdraw() + cowplot::draw_image("C.png", scale = 0.95), plotB, cowplot::ggdraw() + cowplot::draw_image("D.png", scale = 0.95), align = "h", axis = "t", nrow=2,labels = c('A', 'C', 'B', 'D'), label_size = 18, rel_heights =  c(1.5,2.5))
-
-ggsave(fig5,,file="Figure5.pdf", width = 15, height = 8)
-
-ggsave(fig5,file="Figure5.svg", width = 15, height = 8)
 
 ```
 
@@ -2661,8 +2660,6 @@ dfFC <- na.omit(meanTranscriptsEpi) %>%
     group_by(change,TE_status) %>% 
     summarise(FC_low = sum(FC < 1), FC_high = sum(FC > 1), sameFC=sum(FC==1), nGenes=length(unique(gene)), average=mean(avgMean)) %>% reshape2::melt(.)
 
-write.table(dfFC, "1DescriptiveAnalysis/Table_S7B.tab", col.names = T, sep = "\t", row.names = F, quote = F)
-
 ```
 
 
@@ -2837,8 +2834,8 @@ dataGO_BP$enrichmentScore<-as.numeric(as.character(dataGO_BP$enrichmentScore))
 dataGO_BP$classification<-"All chimeric\ngene-TE transcripts"  
 dataGO_BP$tissue <- factor(dataGO_BP$tissue, levels = c("head", "gut", "ovary"), labels=c("Head", "Gut", "Ovary"))
 
-dataGO_BP$shortName <- factor(dataGO_BP$shortName, levels=rev(c("Regulation of cellular process", "Regulation of biological process", "Negative regulation of biological process", "Epithelium development", "Transcription from RNA polymerase II promoter", "Single-multicellular organism process", "Multicellular development"  ,"Regulation of RNA biosynthetic process" , "Morphogenesis" , "Cell communication and signaling" )))
-dataGO_BP<-dataGO_BP %>% arrange(factor(shortName, levels = rev(c("Regulation of cellular process", "Regulation of biological process", "Negative regulation of biological process", "Epithelium development", "Transcription from RNA polymerase II promoter", "Single-multicellular organism process", "Multicellular development" ,"Regulation of RNA biosynthetic process" , "Morphogenesis" , "Cell communication and signaling"  ))))
+dataGO_BP$shortName <- factor(dataGO_BP$shortName, levels=rev(c("Regulation of biological process","Regulation of cellular process",  "Negative regulation of biological process", "Epithelium development", "Transcription from RNA polymerase II promoter", "Single-multicellular organism process", "Multicellular development"  ,"Regulation of RNA biosynthetic process" , "Morphogenesis" , "Cell communication and signaling" )))
+dataGO_BP<-dataGO_BP %>% arrange(factor(shortName, levels = rev(c("Regulation of biological process", "Regulation of cellular process",  "Negative regulation of biological process", "Epithelium development", "Transcription from RNA polymerase II promoter", "Single-multicellular organism process", "Multicellular development" ,"Regulation of RNA biosynthetic process" , "Morphogenesis" , "Cell communication and signaling"  ))))
 
 GO_BP_plot <-ggplot(dataGO_BP, aes(y=enrichmentScore, x=shortName)) + geom_col(aes(fill=type),alpha=0.7) + coord_flip() + facet_grid(classification~ tissue, scales = "free", space = "free") + labs(x="", y = "Enrichment score", fill="Annotation cluster") + theme_Publication() + geom_text(aes(label = nGenes), hjust = 0, size=5)  + scale_fill_manual(values=map_color) +
   theme(axis.text = element_text( size = 16)) + scale_y_continuous(limits = c(0, 11), breaks = seq(0, 11, by = 2)) + guides(fill="none")  + 
@@ -2931,7 +2928,7 @@ GO_MF_g2_plot <-ggplot(dataGO_MF_g2, aes(y=enrichmentScore, x=shortName)) + geom
   theme(strip.background.x = element_blank(),strip.text.x = element_blank())
 GO_MF_g2_plot
 
-plot_grid(GO_BP_plot, GO_BP_g1_plot, GO_BP_g2_plot, GO_MF_plot, GO_MF_g1_plot, GO_MF_g2_plot, ncol=1, align = 'v', axis = 'l', labels=c("A","","","B","",""), label_size=18, rel_heights = c(1, 1.2,1.1,0.7,0.6,0.9))
+plot_grid(GO_BP_plot, GO_BP_g1_plot, GO_BP_g2_plot, GO_MF_plot, GO_MF_g1_plot, GO_MF_g2_plot, ncol=1, align = 'v', axis = 'l', labels=c("A","","","B","",""), label_size=18, rel_heights = c(1, 1.2,1.1,0.7,0.6,0.8))
 
 ggsave("FIGURES/Figure6.png", height = 15.5, width = 13.5)
 ggsave("FIGURES/Figure6.pdf", height = 15.5, width = 13.5)
@@ -3075,8 +3072,6 @@ write.table(x = pfamResultsInfo, file = "../pfamDomains/globalResultParsedInfo.t
 domains <- unique(pfamResultsInfo[,c("hmm_acc","hmm_length","hmm_name")])
 domains$hmm_acc <- sapply(strsplit(as.character(domains$hmm_acc), split="\\.(?=.)", perl=TRUE), `[`, 1)
 write.table(domains, file="1DescriptiveAnalysis/Table_S9B.tab", quote = F, col.names = T, row.names = F, sep = "\t")
-
-median(domains$hmm_length)
 ```
 
 ```{r table-s9c}
@@ -3181,9 +3176,4 @@ listInput <- list(First=unique(chimerics_expr[chimerics_expr$CP>=0.39 & chimeric
  upset(fromList(listInput))
 
  
-s7a_2 <- unique(chimerics[,c("tissue", "strain", "transcript", "transcript_trinity", "transcript_stringtie", "gene", "TE_family", "exon", "expr", "CP")])
- 
-write.table(s7a_2, file="Table_S7A_2.tab", quote = F, col.names = T, row.names = F, sep = "\t")
-
-
 ```
