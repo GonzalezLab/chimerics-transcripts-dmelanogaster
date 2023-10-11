@@ -16,7 +16,7 @@ Scripts and data for the paper "Transposons contribute to the diversification of
 - **Rmd**: Rmd document to reproduce all analyses and figures of the paper
 
 ## Citation
-Coronado-Zamora, M. and González, J. Transposons contribute to the diversification of the head, gut, and ovary transcriptomes across Drosophila natural strains. BioRxiv.
+Coronado-Zamora & González (2023) Transposons contribute to the functional diversification of the head, gut, and ovary transcriptomes across _Drosophila_ natural strains. Genome Research gr.277565.122.
 
 ## Contact
 
